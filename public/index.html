@@ -4,9 +4,267 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Generador de slides</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f11;
+      color: #e8e8ec;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid #1e1e24;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    header h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    header .badge {
+      font-size: 0.7rem;
+      background: #2a2a35;
+      color: #9090a8;
+      padding: 0.2em 0.55em;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      padding: 2rem;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* --- Drop zone --- */
+    #drop-zone {
+      border: 2px dashed #2e2e3a;
+      border-radius: 12px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+      user-select: none;
+    }
+
+    #drop-zone.drag-over {
+      border-color: #6c63ff;
+      background: #1a193a;
+    }
+
+    #drop-zone.has-file {
+      border-color: #3a3a50;
+      background: #13131a;
+    }
+
+    #drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-icon {
+      font-size: 2rem;
+      margin-bottom: 0.75rem;
+      display: block;
+    }
+
+    .drop-label {
+      font-size: 0.95rem;
+      color: #9090a8;
+    }
+
+    .drop-label strong {
+      color: #c0bcff;
+    }
+
+    #file-name {
+      margin-top: 0.6rem;
+      font-size: 0.85rem;
+      color: #6c63ff;
+      font-weight: 500;
+    }
+
+    /* --- Controls row --- */
+    .controls {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    label {
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: #9090a8;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    select {
+      background: #1a1a22;
+      color: #e8e8ec;
+      border: 1px solid #2e2e3a;
+      border-radius: 8px;
+      padding: 0.55rem 0.85rem;
+      font-size: 0.9rem;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239090a8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      padding-right: 2rem;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: #6c63ff;
+    }
+
+    button#generate-btn {
+      background: #6c63ff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+      align-self: flex-end;
+    }
+
+    button#generate-btn:hover:not(:disabled) { background: #7c74ff; }
+    button#generate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* --- Status bar --- */
+    #status {
+      font-size: 0.85rem;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      display: none;
+    }
+
+    #status.loading {
+      display: block;
+      background: #1a1a2e;
+      color: #9090a8;
+    }
+
+    #status.error {
+      display: block;
+      background: #2a1515;
+      color: #ff7070;
+      border: 1px solid #3a1e1e;
+    }
+
+    /* --- Result area --- */
+    #result-area {
+      display: none;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .result-header span {
+      font-size: 0.8rem;
+      color: #9090a8;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    button#download-btn {
+      background: #1e2e1e;
+      color: #70d070;
+      border: 1px solid #2a3e2a;
+      border-radius: 7px;
+      padding: 0.4rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button#download-btn:hover { background: #243424; }
+
+    iframe#preview {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border: none;
+      border-radius: 10px;
+      background: #000;
+    }
+  </style>
 </head>
 <body>
-  <h1>Generador de slides</h1>
-  <p>Sube un PDF para generar slides con reveal.js.</p>
+  <header>
+    <h1>Generador de slides</h1>
+    <span class="badge">reveal.js</span>
+  </header>
+
+  <main>
+    <div id="drop-zone">
+      <input type="file" id="file-input" accept=".pdf,application/pdf">
+      <span class="drop-icon">📄</span>
+      <p class="drop-label">
+        <strong>Arrastra un PDF</strong> aquí o haz clic para seleccionarlo
+      </p>
+      <p id="file-name"></p>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label for="theme-select">Tema</label>
+        <select id="theme-select">
+          <option value="">Cargando temas…</option>
+        </select>
+      </div>
+      <button id="generate-btn" disabled>Generar slides</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div id="result-area">
+      <div class="result-header">
+        <span>Vista previa</span>
+        <button id="download-btn">Descargar HTML</button>
+      </div>
+      <iframe id="preview" title="Vista previa de las slides"></iframe>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>
