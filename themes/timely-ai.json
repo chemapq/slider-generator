@@ -1,0 +1,26 @@
+{
+  "name": "timely-ai",
+  "label": "Timely AI",
+  "description": "Deck SaaS moderno: fondo blanco, morado de marca, tarjetas redondeadas (gris/morada/negra), titulares en Plus Jakarta Sans y botones pill negros.",
+  "source": [
+    "slide01.png",
+    "slide02.png",
+    "slide03.png"
+  ],
+  "palette": {
+    "background": "#ffffff",
+    "text": "#18181b",
+    "muted": "#71717a",
+    "primary": "#6d3ce6",
+    "card": "#f3f3f5",
+    "dark": "#0a0a0a"
+  },
+  "typography": {
+    "headingFont": "Plus Jakarta Sans",
+    "bodyFont": "Inter",
+    "fontLinks": [
+      "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+    ]
+  },
+  "css": "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');\n\n:root {\n  --bg: #ffffff;\n  --text: #18181b;\n  --muted: #71717a;\n  --primary: #6d3ce6;\n  --primary-soft: #ede9fe;\n  --card: #f3f3f5;\n  --dark: #0a0a0a;\n  --radius: 18px;\n}\n\n.reveal { font-family: 'Inter', system-ui, sans-serif; color: var(--text); font-size: 20px; }\n.reveal .slides { text-align: left; }\n.reveal .slides section {\n  width: 100%; height: 100%;\n  padding: 56px 64px;\n  box-sizing: border-box;\n  background: var(--bg);\n  display: flex; flex-direction: column; justify-content: center;\n}\n\n.reveal h1, .reveal h2, .reveal h3 {\n  font-family: 'Plus Jakarta Sans', sans-serif;\n  letter-spacing: -0.02em; line-height: 1.12; margin: 0 0 16px;\n}\n.reveal h1 { color: var(--primary); font-weight: 800; font-size: 40px; }\n.reveal h2 { color: var(--primary); font-weight: 700; font-size: 28px; }\n.reveal h3 { color: var(--text); font-weight: 700; font-size: 19px; margin-bottom: 8px; }\n.reveal p { font-size: 16px; line-height: 1.5; margin: 0 0 12px; }\n.reveal .lead { font-size: 18px; font-weight: 600; color: var(--text); }\n.reveal .muted { color: var(--muted); font-size: 14px; line-height: 1.45; }\n.reveal .eyebrow { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; }\n\n/* layouts */\n.reveal .split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }\n.reveal section.title-slide .split { height: 100%; }\n.reveal .stack { display: flex; flex-direction: column; gap: 16px; }\n.reveal .grid-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }\n\n/* media (placeholder de imagen) */\n.reveal .media {\n  border-radius: var(--radius);\n  background: linear-gradient(135deg, #c4b5fd, #7c5cfc);\n  width: 100%; min-height: 320px; flex: 1;\n}\n.reveal .media--dark { background: linear-gradient(135deg, #2a2440, #0a0a0a); }\n\n/* tarjetas */\n.reveal .card { background: var(--card); border-radius: var(--radius); padding: 22px 24px; }\n.reveal .card h3 { margin: 0 0 6px; }\n.reveal .card p { font-size: 13px; color: var(--muted); margin: 0; }\n.reveal .card--purple { background: var(--primary); }\n.reveal .card--purple h3, .reveal .card--purple p { color: #fff; }\n.reveal .card--dark { background: var(--dark); }\n.reveal .card--dark h3, .reveal .card--dark p { color: #fff; }\n\n/* botón pill */\n.reveal .pill {\n  display: inline-flex; align-items: center; gap: 10px; align-self: flex-start;\n  background: var(--dark); color: #fff;\n  padding: 14px 26px; border-radius: 999px;\n  font-weight: 600; font-size: 14px; text-decoration: none;\n}\n\n/* etiqueta */\n.reveal .tag {\n  display: inline-block; align-self: flex-start;\n  background: var(--card); color: var(--muted);\n  padding: 12px 18px; border-radius: 10px; font-size: 13px;\n}"
+}
