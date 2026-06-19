@@ -3,255 +3,193 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Generador de slides</title>
+  <title>Generador de presentaciones</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg: #0f0f11;
+      --panel: #16161c;
+      --border: #26262f;
+      --border-soft: #1e1e26;
+      --text: #e8e8ec;
+      --muted: #8e8e9e;
+      --brand: #6c63ff;
+      --brand-hover: #7c74ff;
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f11;
-      color: #e8e8ec;
+      background: var(--bg);
+      color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
     }
 
     header {
-      padding: 1.5rem 2rem;
-      border-bottom: 1px solid #1e1e24;
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid var(--border-soft);
       display: flex;
       align-items: center;
       gap: 0.75rem;
     }
-
-    header h1 {
-      font-size: 1.15rem;
-      font-weight: 600;
-      letter-spacing: -0.01em;
-    }
-
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; }
     header .badge {
-      font-size: 0.7rem;
-      background: #2a2a35;
-      color: #9090a8;
-      padding: 0.2em 0.55em;
-      border-radius: 4px;
-      font-weight: 500;
+      font-size: 0.68rem; background: #2a2a35; color: var(--muted);
+      padding: 0.2em 0.55em; border-radius: 4px; font-weight: 500;
     }
 
     main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 1.5rem;
-      padding: 2rem;
-      max-width: 900px;
-      width: 100%;
-      margin: 0 auto;
+      flex: 1; width: 100%; max-width: 1000px; margin: 0 auto;
+      padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem;
     }
 
-    /* --- Drop zone --- */
-    #drop-zone {
-      border: 2px dashed #2e2e3a;
-      border-radius: 12px;
-      padding: 3rem 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
-      position: relative;
-      user-select: none;
+    .section-title {
+      font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem;
+    }
+    .section-title .opt { color: #5a5a68; font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+    /* Drop zones */
+    .dz {
+      border: 2px dashed var(--border); border-radius: 12px;
+      text-align: center; cursor: pointer; position: relative;
+      transition: border-color 0.15s, background 0.15s; user-select: none;
+      background: var(--panel);
+    }
+    .dz.drag-over { border-color: var(--brand); background: #1a193a; }
+    .dz.has-file { border-style: solid; border-color: #34343f; }
+    .dz input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .dz-pdf { padding: 2.25rem 1.5rem; }
+    .dz-sm { padding: 1.1rem 1rem; min-height: 100px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .dz .icon { font-size: 1.6rem; display: block; margin-bottom: 0.45rem; }
+    .dz .label { font-size: 0.88rem; color: var(--muted); }
+    .dz .label strong { color: #c0bcff; }
+    .dz .hint { font-size: 0.74rem; color: #5a5a68; margin-top: 0.3rem; }
+
+    .assets-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;
     }
 
-    #drop-zone.drag-over {
-      border-color: #6c63ff;
-      background: #1a193a;
+    /* Thumbnails */
+    .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.6rem; justify-content: center; }
+    .thumb {
+      width: 44px; height: 44px; border-radius: 7px; object-fit: cover;
+      border: 1px solid var(--border); background: #000;
     }
+    .thumb.avatar { border-radius: 50%; }
+    .file-tag { font-size: 0.8rem; color: var(--brand); font-weight: 500; margin-top: 0.5rem; word-break: break-all; }
+    .count-tag { font-size: 0.78rem; color: var(--muted); margin-top: 0.4rem; }
 
-    #drop-zone.has-file {
-      border-color: #3a3a50;
-      background: #13131a;
+    /* Controls */
+    .controls { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
+    .field { display: flex; flex-direction: column; gap: 0.35rem; flex: 1; min-width: 180px; }
+    label.lbl {
+      font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em;
     }
-
-    #drop-zone input[type="file"] {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-      width: 100%;
-      height: 100%;
-    }
-
-    .drop-icon {
-      font-size: 2rem;
-      margin-bottom: 0.75rem;
-      display: block;
-    }
-
-    .drop-label {
-      font-size: 0.95rem;
-      color: #9090a8;
-    }
-
-    .drop-label strong {
-      color: #c0bcff;
-    }
-
-    #file-name {
-      margin-top: 0.6rem;
-      font-size: 0.85rem;
-      color: #6c63ff;
-      font-weight: 500;
-    }
-
-    /* --- Controls row --- */
-    .controls {
-      display: flex;
-      gap: 1rem;
-      align-items: flex-end;
-      flex-wrap: wrap;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      flex: 1;
-      min-width: 160px;
-    }
-
-    label {
-      font-size: 0.78rem;
-      font-weight: 500;
-      color: #9090a8;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
     select {
-      background: #1a1a22;
-      color: #e8e8ec;
-      border: 1px solid #2e2e3a;
-      border-radius: 8px;
-      padding: 0.55rem 0.85rem;
-      font-size: 0.9rem;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239090a8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 0.75rem center;
-      padding-right: 2rem;
+      background: #1a1a22; color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.9rem; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238e8e9e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem;
     }
-
-    select:focus {
-      outline: none;
-      border-color: #6c63ff;
-    }
+    select:focus { outline: none; border-color: var(--brand); }
 
     button#generate-btn {
-      background: #6c63ff;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      padding: 0.6rem 1.5rem;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, opacity 0.15s;
-      white-space: nowrap;
-      align-self: flex-end;
+      background: var(--brand); color: #fff; border: none; border-radius: 8px;
+      padding: 0.65rem 1.6rem; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, opacity 0.15s; white-space: nowrap;
     }
+    button#generate-btn:hover:not(:disabled) { background: var(--brand-hover); }
+    button#generate-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    button#generate-btn:hover:not(:disabled) { background: #7c74ff; }
-    button#generate-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-    /* --- Status bar --- */
-    #status {
-      font-size: 0.85rem;
-      padding: 0.65rem 1rem;
-      border-radius: 8px;
-      display: none;
+    /* Status */
+    #status { font-size: 0.85rem; padding: 0.7rem 1rem; border-radius: 8px; display: none; }
+    #status.loading { display: flex; align-items: center; gap: 0.6rem; background: #1a1a2e; color: var(--muted); }
+    #status.error { display: block; background: #2a1515; color: #ff7a7a; border: 1px solid #3a1e1e; }
+    .spinner {
+      width: 15px; height: 15px; border: 2px solid #3a3a5a; border-top-color: var(--brand);
+      border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0;
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    #status.loading {
-      display: block;
-      background: #1a1a2e;
-      color: #9090a8;
-    }
-
-    #status.error {
-      display: block;
-      background: #2a1515;
-      color: #ff7070;
-      border: 1px solid #3a1e1e;
-    }
-
-    /* --- Result area --- */
-    #result-area {
-      display: none;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    .result-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
+    /* Result */
+    #result-area { display: none; flex-direction: column; gap: 0.75rem; }
+    .result-header { display: flex; justify-content: space-between; align-items: center; }
     .result-header span {
-      font-size: 0.8rem;
-      color: #9090a8;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-size: 0.72rem; color: var(--muted); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
     }
-
     button#download-btn {
-      background: #1e2e1e;
-      color: #70d070;
-      border: 1px solid #2a3e2a;
-      border-radius: 7px;
-      padding: 0.4rem 1rem;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
+      background: #1e2e1e; color: #74d074; border: 1px solid #2a3e2a; border-radius: 7px;
+      padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
     }
-
     button#download-btn:hover { background: #243424; }
-
-    iframe#preview {
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      border: none;
-      border-radius: 10px;
-      background: #000;
-    }
+    iframe#preview { width: 100%; aspect-ratio: 16 / 9; border: none; border-radius: 10px; background: #000; }
   </style>
 </head>
 <body>
   <header>
-    <h1>Generador de slides</h1>
-    <span class="badge">reveal.js</span>
+    <h1>Generador de presentaciones</h1>
+    <span class="badge">deck HTML</span>
   </header>
 
   <main>
-    <div id="drop-zone">
-      <input type="file" id="file-input" accept=".pdf,application/pdf">
-      <span class="drop-icon">📄</span>
-      <p class="drop-label">
-        <strong>Arrastra un PDF</strong> aquí o haz clic para seleccionarlo
-      </p>
-      <p id="file-name"></p>
+    <!-- PDF (obligatorio) -->
+    <div>
+      <p class="section-title">1 · Guion en PDF</p>
+      <div class="dz dz-pdf" id="dz-pdf">
+        <input type="file" id="in-pdf" accept=".pdf,application/pdf">
+        <span class="icon">📄</span>
+        <p class="label"><strong>Arrastra el PDF</strong> o haz clic para seleccionarlo</p>
+        <p class="file-tag" id="pdf-name"></p>
+      </div>
     </div>
 
-    <div class="controls">
-      <div class="field">
-        <label for="theme-select">Tema</label>
-        <select id="theme-select">
-          <option value="">Cargando temas…</option>
-        </select>
+    <!-- Assets opcionales -->
+    <div>
+      <p class="section-title">2 · Recursos visuales <span class="opt">— opcional</span></p>
+      <div class="assets-grid">
+        <div class="dz dz-sm" id="dz-images">
+          <input type="file" id="in-images" accept="image/*" multiple>
+          <span class="icon">🖼️</span>
+          <p class="label"><strong>Imágenes</strong> placeholder</p>
+          <p class="hint">H/V, varias</p>
+          <div class="thumbs" id="images-thumbs"></div>
+        </div>
+
+        <div class="dz dz-sm" id="dz-avatar">
+          <input type="file" id="in-avatar" accept="image/*">
+          <span class="icon">👤</span>
+          <p class="label"><strong>Avatar</strong>-tutor</p>
+          <p class="hint">intro y cierre</p>
+          <div class="thumbs" id="avatar-thumbs"></div>
+        </div>
+
+        <div class="dz dz-sm" id="dz-refs">
+          <input type="file" id="in-refs" accept="image/*" multiple>
+          <span class="icon">🎨</span>
+          <p class="label"><strong>Referencias</strong> de estilo</p>
+          <p class="hint">refuerzan el tema</p>
+          <div class="thumbs" id="refs-thumbs"></div>
+        </div>
       </div>
-      <button id="generate-btn" disabled>Generar slides</button>
+    </div>
+
+    <!-- Tema + generar -->
+    <div>
+      <p class="section-title">3 · Tema y generación</p>
+      <div class="controls">
+        <div class="field">
+          <label class="lbl" for="theme-select">Tema</label>
+          <select id="theme-select"><option value="">Cargando…</option></select>
+        </div>
+        <button id="generate-btn" disabled>Generar presentación</button>
+      </div>
     </div>
 
     <div id="status"></div>
@@ -261,7 +199,7 @@
         <span>Vista previa</span>
         <button id="download-btn">Descargar HTML</button>
       </div>
-      <iframe id="preview" title="Vista previa de las slides"></iframe>
+      <iframe id="preview" title="Vista previa de la presentación"></iframe>
     </div>
   </main>
 

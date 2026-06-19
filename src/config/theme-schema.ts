@@ -18,6 +18,8 @@ export const ThemeSchema = z.object({
     primary: z.string(),
     card: z.string().optional(),
     dark: z.string().optional(),
+    // Color del anillo del avatar-tutor (p. ej. "#6C4CF1"). Por defecto usa `primary`.
+    avatarRing: z.string().optional(),
   }),
 
   typography: z.object({
@@ -27,7 +29,7 @@ export const ThemeSchema = z.object({
     fontLinks: z.array(z.string()).optional(),
   }),
 
-  // CSS que reproduce el diseño sobre reveal.js (selectores `.reveal …`).
+  // CSS que estiliza el deck propio (selectores sobre .slide, .deck, etc.; NO `.reveal`).
   css: z.string(),
 })
 
