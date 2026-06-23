@@ -1,7 +1,8 @@
 /**
  * Shell del deck propio: HTML autocontenido con CSS+JS inline, 16:9,
- * navegación por teclado/flechas, barra de progreso, contador, puntos
- * y auto-reescalado. No depende de reveal.js ni de ninguna librería externa.
+ * transición fade/scale, nav flotante tipo cristal, barra de progreso
+ * degradada, puntos que se alargan y auto-reescalado.
+ * Chrome portado del deck demo de referencia (presentacion-growth-revops.html).
  */
 
 export interface DeckParts {
@@ -18,216 +19,174 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
 }
 
-// ── CSS base (estructura; el tema aporta lo visual) ──────────────────────────
+// ── CSS base (chrome estructural; el tema aporta tipografía y componentes) ────
 const BASE_CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+html, body { height: 100%; }
 body {
-  background: #111;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #0E0C16;
+  color: #16131F;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
-
-/* Stage se escala para llenar el viewport manteniendo 16:9 */
-.stage {
+#stage {
+  position: relative;
   width: 1280px;
   height: 720px;
   transform-origin: center center;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  flex-shrink: 0;
 }
-
-.deck {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  min-height: 0;
-}
-
 .slide {
   position: absolute;
   inset: 0;
-  display: none;
-  flex-direction: column;
-  justify-content: center;
+  width: 1280px;
+  height: 720px;
   overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(.985);
+  transition: opacity .5s ease, transform .5s ease;
+  display: flex;
 }
-
-.slide.active { display: flex; }
-
-/* Notas del ponente: ocultas (reservadas para un futuro modo presentador). */
+.slide.active { opacity: 1; pointer-events: auto; transform: scale(1); z-index: 2; }
+.slide.prev   { opacity: 0; transform: scale(1.01); }
 .slide .notes { display: none; }
 
-/* Avatar — máscara circular + anillo de marca.
-   Selector con especificidad (.slide img.avatar) para mandar SIEMPRE sobre el
-   tema: el tamaño y el anillo son estructurales, el tema solo aporta el color
-   vía --avatar-ring. */
-.slide img.avatar {
-  width: 180px;
-  height: 180px;
+/* Barra de progreso (degradada, fixed arriba) */
+#progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 4px;
+  background: var(--grad, linear-gradient(90deg, #7C5CFC, #5B3CE0));
+  z-index: 50;
+  transition: width .4s ease;
+}
+
+/* Nav flotante (cristal, fixed abajo-centro) */
+#nav {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, .10);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, .16);
+  padding: 9px 16px;
+  border-radius: 999px;
+}
+#nav button {
+  background: rgba(255, 255, 255, .14);
+  border: none;
+  color: #fff;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  object-fit: cover;
-  object-position: center top;
-  border: 5px solid var(--avatar-ring, var(--primary, #6d3ce6));
-  box-shadow:
-    0 0 0 3px rgba(255,255,255,0.07),
-    0 0 0 9px color-mix(in srgb, var(--avatar-ring, var(--primary, #6d3ce6)) 28%, transparent),
-    0 4px 24px rgba(0,0,0,0.35);
-  display: block;
-  flex-shrink: 0;
-}
-
-/* Número gigante del divisor de sección. Tamaño estructural (el deck lo posee);
-   el color sale de currentColor del .slide.section-divider que define el tema. */
-.slide .section-num {
-  font-size: 150px;
-  font-weight: 800;
-  line-height: 0.9;
-  letter-spacing: -0.04em;
-  opacity: 0.16;
-}
-
-/* Barra inferior (navegación) */
-.bar {
-  flex-shrink: 0;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px;
-  background: rgba(0,0,0,0.18);
-  backdrop-filter: blur(6px);
-}
-
-.btn-nav {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid rgba(255,255,255,0.18);
-  color: rgba(255,255,255,0.75);
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
-  transition: background 0.15s;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background .2s;
 }
-
-.btn-nav:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
-.btn-nav:disabled { opacity: 0.25; cursor: default; }
-
-.dots {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  overflow: hidden;
+#nav button:hover { background: rgba(255, 255, 255, .28); }
+#nav button svg  { width: 16px; height: 16px; }
+#counter {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  min-width: 54px;
+  text-align: center;
 }
-
-.dot {
+#dots { display: flex; gap: 7px; align-items: center; }
+#dots .d {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.28);
-  border: none;
+  background: rgba(255, 255, 255, .30);
   cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.2s, transform 0.2s;
+  transition: all .25s;
 }
+#dots .d.on { background: #fff; width: 22px; border-radius: 999px; }
 
-.dot.active {
-  background: rgba(255,255,255,0.9);
-  transform: scale(1.35);
+/* Hint teclado (fixed esquina inferior derecha) */
+.hint {
+  position: fixed;
+  bottom: 26px;
+  right: 26px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 12px;
+  z-index: 50;
+  font-weight: 500;
 }
-
-.counter {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: rgba(255,255,255,0.4);
-  font-variant-numeric: tabular-nums;
-  min-width: 40px;
-  text-align: right;
-  font-family: system-ui, sans-serif;
-}
-
-/* Barra de progreso */
-.progress-bar {
-  flex-shrink: 0;
-  height: 3px;
-  background: rgba(255,255,255,0.08);
-}
-
-.progress-fill {
-  height: 100%;
-  background: var(--primary, #6d3ce6);
-  transition: width 0.3s ease;
-  width: 0%;
-}
+@media (max-width: 640px) { .hint { display: none; } }
 `.trim()
 
-// ── JS inline (sin dependencias externas) ────────────────────────────────────
+// ── JS inline (portado del deck demo; sin dependencias externas) ──────────────
 const DECK_JS = `
 (function () {
   'use strict';
-  var slides = Array.from(document.querySelectorAll('.slide'));
-  var dotsEl = document.querySelector('.dots');
-  var counterEl = document.querySelector('.counter');
-  var fillEl = document.querySelector('.progress-fill');
-  var prevBtn = document.querySelector('.btn-prev');
-  var nextBtn = document.querySelector('.btn-next');
-  var cur = 0;
+  var stage    = document.getElementById('stage');
+  var slides   = Array.from(document.querySelectorAll('.slide'));
+  var total    = slides.length;
+  var cur      = 0;
 
+  var dotsEl = document.getElementById('dots');
   slides.forEach(function (_, i) {
-    var d = document.createElement('button');
-    d.className = 'dot';
-    d.setAttribute('aria-label', 'Slide ' + (i + 1));
+    var d = document.createElement('span');
+    d.className = 'd';
+    d.dataset.i = String(i);
     d.addEventListener('click', function () { go(i); });
     if (dotsEl) dotsEl.appendChild(d);
   });
+  var dotEls = dotsEl ? Array.from(dotsEl.children) : [];
 
-  function update() {
-    slides.forEach(function (s, i) { s.classList.toggle('active', i === cur); });
-    if (dotsEl) dotsEl.querySelectorAll('.dot').forEach(function (d, i) { d.classList.toggle('active', i === cur); });
-    if (counterEl) counterEl.textContent = (cur + 1) + ' / ' + slides.length;
-    if (fillEl) fillEl.style.width = ((cur + 1) / slides.length * 100) + '%';
-    if (prevBtn) prevBtn.disabled = cur === 0;
-    if (nextBtn) nextBtn.disabled = cur === slides.length - 1;
+  function pad(n) { return String(n + 1).padStart(2, '0'); }
+
+  function render() {
+    slides.forEach(function (s, i) {
+      s.classList.toggle('active', i === cur);
+      s.classList.toggle('prev',   i < cur);
+    });
+    dotEls.forEach(function (d, i) { d.classList.toggle('on', i === cur); });
+    var counter  = document.getElementById('counter');
+    var progress = document.getElementById('progress');
+    if (counter)  counter.textContent        = pad(cur) + ' / ' + pad(total - 1);
+    if (progress) progress.style.width       = (total > 1 ? (cur / (total - 1)) * 100 : 100) + '%';
   }
 
-  function go(n) {
-    cur = Math.max(0, Math.min(n, slides.length - 1));
-    update();
-  }
+  function go(i)  { cur = Math.max(0, Math.min(total - 1, i)); render(); }
+  function next() { go(cur + 1); }
+  function prev() { go(cur - 1); }
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); go(cur + 1); }
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); go(cur - 1); }
-    else if (e.key === 'Home') { e.preventDefault(); go(0); }
-    else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
+  var btnNext = document.getElementById('next');
+  var btnPrev = document.getElementById('prev');
+  if (btnNext) btnNext.addEventListener('click', next);
+  if (btnPrev) btnPrev.addEventListener('click', prev);
+
+  window.addEventListener('keydown', function (e) {
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key))      { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { go(0); }
+    else if (e.key === 'End')  { go(total - 1); }
   });
 
-  if (prevBtn) prevBtn.addEventListener('click', function () { go(cur - 1); });
-  if (nextBtn) nextBtn.addEventListener('click', function () { go(cur + 1); });
-
-  var stage = document.querySelector('.stage');
-  function scale() {
+  function fit() {
     if (!stage) return;
-    var s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
-    stage.style.transform = 'scale(' + s + ')';
+    var sx = window.innerWidth  / 1280;
+    var sy = window.innerHeight / 720;
+    stage.style.transform = 'scale(' + Math.min(sx, sy) + ')';
   }
-  window.addEventListener('resize', scale);
-  scale();
-  update();
+  window.addEventListener('resize', fit);
+  fit();
+  render();
 }());
 `.trim()
 
@@ -245,18 +204,17 @@ ${css}
 </style>
 </head>
 <body>
-<div class="stage">
-  <div class="deck">
+<div id="progress"></div>
+<div id="stage">
 ${slides}
-  </div>
-  <div class="bar">
-    <button class="btn-nav btn-prev" aria-label="Anterior">&#8249;</button>
-    <div class="dots"></div>
-    <button class="btn-nav btn-next" aria-label="Siguiente">&#8250;</button>
-    <div class="counter"></div>
-  </div>
-  <div class="progress-bar"><div class="progress-fill"></div></div>
 </div>
+<div id="nav">
+  <button id="prev" aria-label="Anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+  <span id="counter">01 / 01</span>
+  <div id="dots"></div>
+  <button id="next" aria-label="Siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+</div>
+<div class="hint">← / → · barra espaciadora</div>
 <script>${DECK_JS}</script>
 </body>
 </html>

@@ -99,6 +99,12 @@
     }
     select:focus { outline: none; border-color: var(--brand); }
 
+    .theme-note {
+      display: flex; align-items: center; gap: 0.5rem;
+      background: #1a193a; border: 1px solid #2e2c52; border-radius: 8px;
+      padding: 0.6rem 0.85rem; font-size: 0.88rem; color: #c0bcff; font-weight: 500;
+    }
+
     button#generate-btn {
       background: var(--brand); color: #fff; border: none; border-radius: 8px;
       padding: 0.65rem 1.6rem; font-size: 0.95rem; font-weight: 600; cursor: pointer;
@@ -174,7 +180,7 @@
           <input type="file" id="in-refs" accept="image/*" multiple>
           <span class="icon">🎨</span>
           <p class="label"><strong>Referencias</strong> de estilo</p>
-          <p class="hint">refuerzan el tema</p>
+          <p class="hint">guían el diseño</p>
           <div class="thumbs" id="refs-thumbs"></div>
         </div>
       </div>
@@ -184,9 +190,13 @@
     <div>
       <p class="section-title">3 · Tema y generación</p>
       <div class="controls">
-        <div class="field">
+        <div class="field" id="theme-field">
           <label class="lbl" for="theme-select">Tema</label>
           <select id="theme-select"><option value="">Cargando…</option></select>
+        </div>
+        <div class="field" id="theme-from-images" style="display:none">
+          <label class="lbl">Diseño</label>
+          <p class="theme-note"><span>🎨</span> Guiado por tus imágenes de referencia</p>
         </div>
         <button id="generate-btn" disabled>Generar presentación</button>
       </div>

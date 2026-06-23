@@ -11,6 +11,8 @@ let blobUrl = null
 const $ = (id) => document.getElementById(id)
 
 const themeSelect = $('theme-select')
+const themeField = $('theme-field')
+const themeFromImages = $('theme-from-images')
 const generateBtn = $('generate-btn')
 const statusEl = $('status')
 const resultArea = $('result-area')
@@ -96,19 +98,33 @@ wireZone('dz-refs', 'in-refs', { multiple: true }, (files, zone) => {
   refFiles = refFiles.concat(files)
   renderThumbs($('refs-thumbs'), refFiles)
   zone.classList.add('has-file')
+  updateThemeSource()
 })
+
+// Con referencias de estilo, ELLAS definen el tema: ocultamos el desplegable.
+function updateThemeSource() {
+  const fromImages = refFiles.length > 0
+  themeField.style.display = fromImages ? 'none' : 'flex'
+  themeFromImages.style.display = fromImages ? 'flex' : 'none'
+}
 
 // --- Generar ---
 generateBtn.addEventListener('click', async () => {
   if (!pdfFile) return
 
   generateBtn.disabled = true
-  showStatus('loading', 'Generando presentación con Claude… puede tardar 1-2 minutos.')
+  showStatus(
+    'loading',
+    refFiles.length
+      ? 'Generando la presentación guiada por tus referencias con Claude… puede tardar 1-2 minutos.'
+      : 'Generando presentación con Claude… puede tardar 1-2 minutos.',
+  )
   hideResult()
 
   const form = new FormData()
   form.append('file', pdfFile)
-  form.append('theme', themeSelect.value)
+  // Con referencias, el tema lo definen las imágenes: no enviamos el desplegable.
+  if (!refFiles.length) form.append('theme', themeSelect.value)
   imageFiles.forEach((f) => form.append('images', f))
   if (avatarFile) form.append('avatar', avatarFile)
   refFiles.forEach((f) => form.append('references', f))

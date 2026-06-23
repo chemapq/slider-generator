@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import Anthropic from '@anthropic-ai/sdk'
 import { generateSlides } from '../services/claude.js'
 import { renderSlides, type DeckImages } from '../services/slides.js'
 import { loadTheme, listThemes } from '../services/themes.js'
@@ -21,6 +22,21 @@ function isLimitError(err: unknown): boolean {
   return code === 'FST_FILES_LIMIT' || code === 'FST_REQ_FILE_TOO_LARGE'
 }
 
+/**
+ * Errores transitorios de la API de Claude (saturación, límite de tasa, 5xx,
+ * fallo de conexión). El SDK ya reintenta, así que si llegan aquí es que han
+ * persistido: conviene pedir al usuario que reintente en unos segundos.
+ */
+function isTransientApiError(err: unknown): boolean {
+  if (err instanceof Anthropic.APIConnectionError) return true
+  if (err instanceof Anthropic.APIError) {
+    const status = err.status
+    if (status === 429 || (typeof status === 'number' && status >= 500)) return true
+    if ((err as { type?: string }).type === 'overloaded_error') return true
+  }
+  return false
+}
+
 export async function generateRoutes(app: FastifyInstance): Promise<void> {
   /** Lista los temas disponibles para el selector de la UI. */
   app.get('/api/themes', async (_req, reply) => {
@@ -36,8 +52,12 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    *   file        → PDF (obligatorio)
    *   images      → imágenes placeholder (0..n)
    *   avatar      → avatar-tutor (0..1)
-   *   references  → imágenes de estilo de refuerzo (0..n)
-   *   theme       → nombre del tema (opcional; por defecto "timely-ai")
+   *   references  → imágenes de estilo (0..n). Si hay alguna, se pasan al generador
+   *                 como GUÍA DE DISEÑO: Claude compone las slides parecidas a ellas
+   *                 (modo libre). No derivan un tema; el tema solo aporta el contrato
+   *                 de tokens base.
+   *   theme       → nombre del tema (opcional; por defecto "timely-ai"). Aporta el
+   *                 contrato de tokens base; con referencias, estas guían el diseño.
    */
   app.post('/api/generate', async (req, reply) => {
     let pdfBuffer: Buffer | null = null
@@ -86,12 +106,6 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'Falta el PDF (campo "file").' })
     }
 
-    const theme = await loadTheme(themeName).catch(async () => {
-      const all = await listThemes()
-      if (!all.length) throw new Error('No hay temas disponibles en themes/.')
-      return all[0]!
-    })
-
     // Procesar assets.
     const placeholders = processPlaceholders(placeholderFiles)
     const avatarUri = avatarFile
@@ -106,17 +120,35 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       avatar: avatarUri,
     }
 
+    // El tema aporta el contrato de tokens base (colores, tipografía, componentes).
+    // Si hay imágenes de referencia, NO se deriva un tema de ellas: se pasan tal cual
+    // al generador como guía de diseño (modo libre), y Claude compone parecido a ellas.
     let html: string
     try {
+      const theme = await loadTheme(themeName).catch(async () => {
+        const all = await listThemes()
+        if (!all.length) throw new Error('No hay temas disponibles en themes/.')
+        return all[0]!
+      })
+
       const slides = await generateSlides({
         pdfBase64: pdfBuffer.toString('base64'),
         theme,
         imageManifest: placeholders.map((p) => ({ id: p.id, orientation: p.orientation })),
         hasAvatar: avatarUri !== undefined,
+        // Con referencias, se reenvían al generador para que Claude imite su estilo y
+        // layout (modo libre). Sin referencias, el array va vacío (modo estricto).
         referenceImages,
       })
       html = renderSlides(slides, theme, deckImages)
     } catch (err: unknown) {
+      if (isTransientApiError(err)) {
+        return reply.status(503).send({
+          error:
+            'El servicio de Claude está saturado ahora mismo (overloaded). ' +
+            'Espera unos segundos y vuelve a intentarlo.',
+        })
+      }
       const msg = err instanceof Error ? err.message : String(err)
       return reply.status(502).send({ error: `Error generando slides: ${msg}` })
     }

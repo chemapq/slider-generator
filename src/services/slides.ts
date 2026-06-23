@@ -2,12 +2,19 @@ import type { Slides } from '../config/schema.js'
 import type { Theme } from '../config/theme-schema.js'
 import { renderDeck } from '../templates/deck.js'
 
-/** Imágenes resueltas (data URIs) que el renderer inyecta en los slots. */
 export interface DeckImages {
   /** id de imagen placeholder ("h1", "v2"…) → data URI. */
   placeholders: Map<string, string>
   /** Avatar-tutor como data URI (si se subió). */
   avatar?: string
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 function escapeHtml(s: string): string {
@@ -17,42 +24,50 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
 }
 
-function escapeAttr(s: string): string {
-  return escapeHtml(s).replace(/"/g, '&quot;')
-}
-
 /**
- * Sustituye los slots que dejó Claude por las imágenes reales:
- * - `<img class="avatar" ... data-avatar>` → su `src` apunta al avatar (o se
- *   elimina el <img> si no hay avatar).
- * - `data-img="<id>"` en un `.media` → se le añade un `background-image` con el
- *   data URI. Si el id no existe, se deja el degradado (fallback).
+ * Rellena los slots que dejó Claude:
+ *
+ * 1. `<img data-avatar …>` → inyecta `src` (avatar-tutor dentro de `.tutor .photo`).
+ *    Sin avatar → quita el <img> para no mostrar icono roto.
+ *
+ * 2. `<img data-img="ID" …>` → inyecta `src` con el data URI del placeholder.
+ *    (Patrón preferido: `.imgbox > <img data-img="ID">`)
+ *
+ * 3. `data-img="ID"` en elementos NON-img (ej: `.media`) → inyecta
+ *    `style="background-image:url(…)"` para mostrar la imagen como fondo.
+ *    Id desconocido → deja el degradado de fallback (nunca se rompe).
  */
 function fillSlots(html: string, images: DeckImages): string {
-  // Avatar: cualquier <img …data-avatar…>
-  html = html.replace(/<img\b[^>]*\bdata-avatar\b[^>]*>/gi, (tag) => {
-    if (!images.avatar) return '' // sin avatar → quitar el <img> (evita icono roto)
-    if (/\bsrc\s*=\s*"/i.test(tag)) {
-      return tag.replace(/\bsrc\s*=\s*"[^"]*"/i, `src="${images.avatar}"`)
+  // 1. Avatar: <img … data-avatar …>
+  html = html.replace(/<img\b([^>]*)\bdata-avatar\b([^>]*)>/gi, (_match, before, after) => {
+    if (!images.avatar) return ''
+    const attrs = before + after
+    if (/\bsrc\s*=\s*"/i.test(attrs)) {
+      return `<img${before}${after}>`.replace(/\bsrc\s*=\s*"[^"]*"/i, `src="${images.avatar}"`)
     }
-    return tag.replace(/<img\b/i, `<img src="${images.avatar}"`)
+    return `<img${before} src="${images.avatar}"${after}>`
   })
 
-  // Placeholders: data-img="<id>" → inyectar background-image
+  // 2. <img data-img="ID"> → inject src, strip data-img from the img tag
+  html = html.replace(
+    /<img\b([^>]*?)data-img\s*=\s*"([^"]+)"([^>]*?)>/gi,
+    (_match, before, id, after) => {
+      const uri = images.placeholders.get(id)
+      if (!uri) return _match
+      return `<img${before}src="${uri}"${after}>`
+    },
+  )
+
+  // 3. Remaining data-img="ID" on non-img elements → background-image
   html = html.replace(/\bdata-img\s*=\s*"([^"]+)"/gi, (whole, id: string) => {
     const uri = images.placeholders.get(id)
-    if (!uri) return whole // id desconocido → degradado fallback
+    if (!uri) return whole
     return `${whole} style="background-image:url('${uri}');background-size:cover;background-position:center"`
   })
 
   return html
 }
 
-/**
- * Convierte el contenido (Slides) + un tema + las imágenes en un deck HTML
- * autocontenido. El `html` de cada slide viene del modelo y se inserta tal cual
- * (HTML intencional con las clases del tema); solo se escapan clase y notas.
- */
 export function renderSlides(data: Slides, theme: Theme, images?: DeckImages): string {
   const imgs: DeckImages = images ?? { placeholders: new Map() }
 

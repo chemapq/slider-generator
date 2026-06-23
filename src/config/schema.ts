@@ -5,35 +5,56 @@ import { z } from 'zod'
  * El estilo lo aporta el tema (themes/*.json → css). El renderer sustituye los
  * slots de imagen/avatar DESPUÉS de recibir la respuesta de Claude.
  *
- * Vocabulario de componentes (clases usables en `html`):
- *   h1, h3            — titulares de slide / tarjeta
- *   .lead             — subtítulo destacado
- *   .muted            — texto secundario / pie
- *   .eyebrow          — etiqueta corta en mayúsculas sobre un título
- *   .split            — rejilla 2 columnas (hijos directos = las 2 columnas)
- *   .stack            — columna vertical con separación entre elementos
- *   .grid-cards       — rejilla de tarjetas (2 col)
- *   .card             — tarjeta; variantes: .card--purple, .card--dark
- *   .media            — marcador de imagen (degradado fallback). Añadir data-img="<id>"
- *                       para que el renderer inyecte la imagen placeholder (p. ej.
- *                       data-img="h1" para la primera horizontal, "v2" para la 2ª vertical).
- *                       Variante: .media--dark (degradado oscuro).
- *   .avatar           — foto del tutor circular con anillo "en directo". Usar con
- *                       data-avatar (sin valor). Solo en slides con slideClass "title-slide"
- *                       o "outro".
- *   .pill             — botón CTA: <a class="pill" href="#">Texto →</a>
- *   .tag              — etiqueta pequeña inline
+ * ── TOKENS disponibles en cada tema (usar siempre var(…), nunca hex hardcodeado) ──
+ *   --primary        acento de marca
+ *   --primary-600    variante más oscura
+ *   --primary-300    variante más clara (texto sobre fondo oscuro)
+ *   --primary-soft   fondo muy suave (columnas intro/outro)
+ *   --ink            texto principal
+ *   --ink-soft       texto destacado
+ *   --muted          texto secundario
+ *   --muted-2        etiquetas tenues
+ *   --card           fondo tarjeta clara
+ *   --black          fondo/tarjeta oscura
+ *   --bg             fondo de slide blanco
+ *   --grad           degradado de marca
+ *   --grad-soft      degradado suave
+ *   --shadow-sm / --shadow / --shadow-lg   sombras
+ *   --radius (26px) / --radius-sm (16px)   redondeos
  *
- * Valores de slideClass especiales:
- *   "title-slide"     — portada (primera slide, avatar si hay)
- *   "section-divider" — divisor de sección con número grande
- *   "outro"           — conclusión/cierre (avatar si hay)
+ * ── COMPONENTES (clases disponibles en el HTML de cada slide) ──
+ *   Utilidades:
+ *     .pad            → padding 64px 72px
+ *     .col            → flex column
+ *   Tipografía:
+ *     h1 h2 h3 p .lead b/strong .vio .kicker/.eyebrow .stat
+ *   Marca/cabecera:
+ *     .brandbar .brand .brand.light .num
+ *   Chips/botones:
+ *     .tag .pip  .btn .circ
+ *   Tarjetas:
+ *     .card  .card.dark  .card.violet  .card .ico  .card .num-badge
+ *   Imágenes:
+ *     .imgbox  .imgbox img[data-img]  .ph-badge  .media[data-img]
+ *   Avatar-tutor (solo en intro/outro):
+ *     .tutor  .tutor .ring  .tutor .ring.r2  .tutor .photo  .tutor .photo img[data-avatar]
+ *     .tutor .live  .tutor .live .blink
+ *   Decoración:
+ *     .blob
+ *
+ * ── slideClass canónico ──
+ *   "cover"           portada (sin brandbar)
+ *   "intro"           bienvenida con .tutor (sin brandbar)
+ *   ""  (vacío)       slide de contenido (con .brandbar)
+ *   "section-divider" divisor (fondo negro; sin brandbar, o con .brand.light)
+ *   "outro"           conclusión con .tutor
+ *   "closing"         cierre final (fondo degradado; sin brandbar o con .brand.light)
  */
 const Slide = z.object({
-  // "title-slide" | "section-divider" | "outro" | string libre | undefined
+  // Clase especial del <section>. Ver valores canónicos arriba.
   slideClass: z.string().optional(),
-  // HTML interno del <section> usando el vocabulario de arriba. Los slots
-  // data-img / data-avatar los rellena el renderer (renderSlides), no Claude.
+  // HTML interno del <section>. Puede incluir style="…" inline e iconos SVG.
+  // Los slots data-img / data-avatar los rellena el renderer (renderSlides).
   html: z.string(),
   notes: z.string().optional(),
 })
