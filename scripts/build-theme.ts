@@ -41,6 +41,7 @@ const TIMELY_AI_CSS = `
   --bg: #FFFFFF;
   --grad: linear-gradient(135deg, #7C5CFC 0%, #5B3CE0 60%, #3F27B8 100%);
   --grad-soft: linear-gradient(135deg, #EFEAFF 0%, #E2D8FF 100%);
+  --blob: rgba(108,76,241,.35);
   --shadow-sm: 0 2px 10px rgba(28,20,60,.06);
   --shadow: 0 18px 50px rgba(60,40,140,.14);
   --shadow-lg: 0 30px 70px rgba(40,25,110,.20);

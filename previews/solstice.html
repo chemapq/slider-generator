@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview — Solstice</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #0E0C16;
+  color: #16131F;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+}
+#stage {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  transform-origin: center center;
+}
+.slide {
+  position: absolute;
+  inset: 0;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(.985);
+  transition: opacity .5s ease, transform .5s ease;
+  display: flex;
+}
+.slide.active { opacity: 1; pointer-events: auto; transform: scale(1); z-index: 2; }
+.slide.prev   { opacity: 0; transform: scale(1.01); }
+.slide .notes { display: none; }
+
+/* Barra de progreso (degradada, fixed arriba) */
+#progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 4px;
+  background: var(--grad, linear-gradient(90deg, #7C5CFC, #5B3CE0));
+  z-index: 50;
+  transition: width .4s ease;
+}
+
+/* Nav flotante (cristal, fixed abajo-centro) */
+#nav {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(255, 255, 255, .10);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, .16);
+  padding: 9px 16px;
+  border-radius: 999px;
+}
+#nav button {
+  background: rgba(255, 255, 255, .14);
+  border: none;
+  color: #fff;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .2s;
+}
+#nav button:hover { background: rgba(255, 255, 255, .28); }
+#nav button svg  { width: 16px; height: 16px; }
+#counter {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+  min-width: 54px;
+  text-align: center;
+}
+#dots { display: flex; gap: 7px; align-items: center; }
+#dots .d {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .30);
+  cursor: pointer;
+  transition: all .25s;
+}
+#dots .d.on { background: #fff; width: 22px; border-radius: 999px; }
+
+/* Hint teclado (fixed esquina inferior derecha) */
+.hint {
+  position: fixed;
+  bottom: 26px;
+  right: 26px;
+  color: rgba(255, 255, 255, .45);
+  font-size: 12px;
+  z-index: 50;
+  font-weight: 500;
+}
+@media (max-width: 640px) { .hint { display: none; } }
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+  --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --w-display: 800; --w-h2: 700; --w-h3: 700; --track-display: -.02em;
+  --primary: #FF6A3D;
+  --primary-600: #E8552B;
+  --primary-300: #FFB13C;
+  --primary-100: #FFE6DA;
+  --primary-soft: #FFF0E8;
+  --ink: #2A201B;
+  --ink-soft: #4A3A32;
+  --muted: #897A70;
+  --muted-2: #B6A89F;
+  --line: #F0E4DB;
+  --card: #FFF4ED;
+  --card-2: #FFEAE0;
+  --black: #2A1D16;
+  --bg: #FFFBF7;
+  --grad: linear-gradient(135deg, #FF7A45 0%, #FF5E5E 46%, #FFB13C 100%);
+  --grad-soft: linear-gradient(135deg, #FFE9DC 0%, #FFDCE0 100%);
+  --shadow-sm: 0 2px 10px rgba(255,120,70,.10);
+  --shadow: 0 16px 44px rgba(255,110,60,.16);
+  --shadow-lg: 0 30px 70px rgba(255,100,50,.22);
+  --radius: 26px;
+  --radius-sm: 16px;
+  --avatar-ring: #FF6A3D;
+  --blob: rgba(255,106,61,.40);
+  --dot-radius: 9px;
+  --tag-border: rgba(255,106,61,.22);
+  --card-border: 1px solid transparent;
+  --card-shadow: 0 14px 40px rgba(255,120,60,.13);
+  --ico-bg: #FFFFFF;
+  --ico-radius: 14px;
+  --numbadge: rgba(255,106,61,.16);
+  --on-dark-muted: #D9CCC4;
+  --on-accent-muted: #FFE6D6;
+}
+
+/* Fondo de slide (el chrome de deck.ts ya pone position/opacity/transform) */
+.slide { background: var(--bg); }
+
+/* Utilidades */
+.pad { padding: 64px 72px; }
+.col { display: flex; flex-direction: column; }
+
+/* ── Tipografía ─────────────────────────────────────────────────────────── */
+body { font-family: var(--font-body); }
+h1 { font-family: var(--font-display); font-weight: var(--w-display); letter-spacing: var(--track-display); line-height: 1.02; color: var(--ink); }
+h2 { font-family: var(--font-display); font-weight: var(--w-h2); letter-spacing: var(--track-display); line-height: 1.06; color: var(--ink); }
+h3 { font-family: var(--font-display); font-weight: var(--w-h3); letter-spacing: -.01em; line-height: 1.14; color: var(--ink); }
+p  { color: var(--muted); line-height: 1.55; font-weight: 400; }
+.lead { font-size: 18px; color: var(--ink-soft); line-height: 1.6; font-weight: 500; }
+b, strong { color: var(--ink); font-weight: 700; }
+.vio { color: var(--primary); }
+.kicker, .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted-2); }
+.stat { font-family: var(--font-display); font-weight: var(--w-display); letter-spacing: -.03em; color: var(--ink); line-height: 1; }
+
+/* ── Brand bar ──────────────────────────────────────────────────────────── */
+.brandbar { position: absolute; top: 30px; left: 72px; right: 72px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
+.brand { display: flex; align-items: center; gap: 11px; font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: -.01em; color: var(--ink); }
+.brand .dot { width: 26px; height: 26px; border-radius: var(--dot-radius); background: var(--grad); box-shadow: var(--shadow-sm); position: relative; }
+.brand .dot::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--bg); opacity: .92; }
+.brand.light, .brand.light .num { color: #fff; }
+.num { font-size: 13px; font-weight: 700; color: var(--muted-2); letter-spacing: .04em; }
+
+/* ── Tags / botones ─────────────────────────────────────────────────────── */
+.tag { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-600); font-size: 13px; font-weight: 700; letter-spacing: .02em; width: max-content; border: 1px solid var(--tag-border); }
+.tag .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
+.btn { display: inline-flex; align-items: center; gap: 14px; background: var(--black); color: #fff; border-radius: 999px; padding: 14px 22px 14px 26px; font-family: var(--font-display); font-weight: 700; font-size: 15px; width: max-content; box-shadow: var(--shadow-sm); }
+.btn .circ { width: 34px; height: 34px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
+.btn .circ svg { width: 15px; height: 15px; }
+
+/* ── Tarjetas ───────────────────────────────────────────────────────────── */
+.card { background: var(--card); border-radius: var(--radius); padding: 30px 32px; position: relative; overflow: hidden; border: var(--card-border); box-shadow: var(--card-shadow); }
+.card.dark { background: var(--black); color: #fff; border-color: transparent; }
+.card.dark h3 { color: #fff; }
+.card.dark p { color: var(--on-dark-muted); }
+.card.violet { background: var(--grad); color: #fff; border-color: transparent; }
+.card.violet h3 { color: #fff; }
+.card.violet p { color: var(--on-accent-muted); }
+.card .ico { width: 46px; height: 46px; border-radius: var(--ico-radius); background: var(--ico-bg); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; box-shadow: var(--shadow-sm); }
+.card.dark .ico, .card.violet .ico { background: rgba(255,255,255,.14); box-shadow: none; }
+.card .ico svg { width: 23px; height: 23px; }
+.card .num-badge { position: absolute; top: 24px; right: 26px; font-family: var(--font-display); font-size: 46px; font-weight: var(--w-display); color: var(--numbadge); letter-spacing: -.04em; line-height: 1; }
+.card.dark .num-badge { color: rgba(255,255,255,.10); }
+.card.violet .num-badge { color: rgba(255,255,255,.16); }
+
+/* ── Image boxes ────────────────────────────────────────────────────────── */
+.imgbox { border-radius: var(--radius); overflow: hidden; background: var(--grad-soft); position: relative; box-shadow: var(--card-shadow); }
+.imgbox img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph-badge { position: absolute; bottom: 14px; left: 14px; background: rgba(8,10,20,.62); color: #fff; font-size: 11px; font-weight: 600; padding: 5px 11px; border-radius: 999px; backdrop-filter: blur(6px); letter-spacing: .02em; }
+
+/* ── Imagen media (fallback sin .imgbox) ────────────────────────────────── */
+.media { border-radius: var(--radius); background: var(--grad-soft); background-size: cover; background-position: center; min-height: 320px; flex: 1; }
+.media.dark { background: linear-gradient(135deg, var(--card-2), var(--black)); }
+
+/* ── Avatar-tutor ───────────────────────────────────────────────────────── */
+.tutor { position: relative; flex: none; }
+.tutor .ring { position: absolute; inset: -14px; border-radius: 50%; border: 2px solid var(--avatar-ring); opacity: .55; animation: pulse 2.6s ease-out infinite; }
+.tutor .ring.r2 { animation-delay: 1.3s; }
+@keyframes pulse { 0% { transform: scale(.92); opacity: .6; } 70% { opacity: 0; } 100% { transform: scale(1.18); opacity: 0; } }
+.tutor .photo { border-radius: 50%; overflow: hidden; background: var(--grad); box-shadow: var(--shadow-lg); position: relative; z-index: 2; }
+.tutor .photo img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; display: block; }
+.tutor .live { position: absolute; z-index: 3; bottom: 8px; left: 50%; transform: translateX(-50%); background: var(--black); color: #fff; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 999px; display: flex; align-items: center; gap: 7px; white-space: nowrap; box-shadow: var(--shadow); }
+.tutor .live .blink { width: 8px; height: 8px; border-radius: 50%; background: #4ADE80; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+
+/* ── Decoración ─────────────────────────────────────────────────────────── */
+.blob { position: absolute; border-radius: 50%; filter: blur(2px); z-index: 0; }
+
+/* ── slideClass especiales ──────────────────────────────────────────────── */
+.slide.section-divider { background: var(--black); }
+.slide.closing { background: var(--grad); }
+
+/* ── Accesibilidad ──────────────────────────────────────────────────────── */
+#nav button:focus-visible { outline: 2px solid var(--primary-300); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .tutor .ring, .tutor .live .blink { animation: none; }
+}
+
+/* ── Ajustes propios del tema ───────────────────────────────────────────── */
+.tag { box-shadow: var(--shadow-sm); }
+.card .ico { box-shadow: var(--shadow-sm); }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="stage">
+<section class="slide cover">
+    <div style="width:47%;height:100%;background:var(--grad);position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <div class="blob" style="width:240px;height:240px;background:rgba(255,255,255,.18);top:-60px;left:-50px;filter:blur(44px)"></div>
+      <div class="blob" style="width:160px;height:160px;background:rgba(255,255,255,.12);bottom:40px;right:-30px;filter:blur(40px)"></div>
+      <div style="position:relative;width:280px;height:390px;border:2px dashed rgba(255,255,255,.55);border-radius:34px;padding:14px">
+        <div class="imgbox" style="width:100%;height:100%;border-radius:24px;box-shadow:var(--shadow-lg)">
+          <span class="ph-badge">Imagen · placeholder</span>
+        </div>
+        <div style="position:absolute;bottom:-20px;left:-18px;background:var(--card);border-radius:14px;padding:10px 14px;box-shadow:var(--shadow);font-weight:800;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:8px">
+          <span style="width:8px;height:8px;border-radius:50%;background:#4ADE80"></span>Concepto A · B · C
+        </div>
+      </div>
+    </div>
+    <div class="col" style="width:53%;justify-content:center;padding:0 80px;position:relative">
+      <span class="kicker" style="color:var(--primary-600)">Nombre del Curso · Tema 1</span>
+      <h1 style="font-size:50px;margin:20px 0 0">Título de la <span class="vio">presentación</span></h1>
+      <p class="lead" style="margin-top:24px;max-width:440px">Descripción breve de la propuesta de valor de este tema educativo.</p>
+      <div style="display:flex;align-items:center;gap:18px;margin-top:38px">
+        <span class="btn">Comenzar el tema <span class="circ"><svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span></span>
+        <span class="tag"><span class="pip"></span>Duración ~15 min</span>
+      </div>
+      <div style="position:absolute;bottom:46px;left:80px;display:flex;align-items:center;gap:11px">
+        <div style="width:24px;height:24px;border-radius:7px;background:var(--grad)"></div>
+        <span style="font-weight:800;font-size:14px;color:var(--ink)">Awake Lab · Academia</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide intro">
+    <div class="brandbar"><div class="brand"><span class="dot"></span>Nombre del Curso</div><span class="num">Introducción</span></div>
+    <div class="col" style="width:42%;height:100%;background:var(--primary-soft);align-items:center;justify-content:center;position:relative">
+      <div class="blob" style="width:220px;height:220px;background:var(--blob);top:60px;left:-40px;filter:blur(40px)"></div>
+      <div class="tutor" style="width:300px;height:300px">
+        <span class="ring"></span><span class="ring r2"></span>
+        <div class="photo" style="width:300px;height:300px"></div>
+        <span class="live"><span class="blink"></span>Tu tutora · en directo</span>
+      </div>
+      <p style="margin-top:46px;font-weight:700;color:var(--ink);font-size:15px">Voz en off · Bienvenida</p>
+    </div>
+    <div class="col" style="width:58%;justify-content:center;padding:0 72px">
+      <span class="tag"><span class="pip"></span>¡Bienvenidas y bienvenidos!</span>
+      <h2 style="font-size:36px;margin:22px 0 0">Tu primer paso hacia el <span class="vio">aprendizaje</span></h2>
+      <p class="lead" style="margin-top:22px">Aquí vas a descubrir los fundamentos de este tema con ejemplos prácticos y un ritmo pensado para ti.</p>
+      <p class="lead" style="margin-top:16px">En los próximos minutos responderemos a estas preguntas <b>y muchas más</b>.</p>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="brandbar"><div class="brand"><span class="dot"></span>Nombre del Curso</div><span class="num">Agenda</span></div>
+    <div class="col pad" style="width:100%;justify-content:center">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px">
+        <div>
+          <span class="kicker" style="color:var(--primary-600)">Lo que vas a explorar</span>
+          <h2 style="font-size:38px;margin-top:12px">Los subapartados que veremos son <span class="vio">tres</span></h2>
+        </div>
+        <p style="max-width:300px;text-align:right;font-weight:500">Quédate hasta el final para descubrir las claves del tema.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px">
+        <div class="card" style="padding:34px 32px"><span class="num-badge">1.1</span><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div><h3 style="font-size:19px">Primer subapartado</h3><p style="margin-top:10px;font-size:14px">Descripción breve de este primer concepto.</p></div>
+        <div class="card violet" style="padding:34px 32px"><span class="num-badge">1.2</span><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div><h3 style="font-size:19px">Segundo subapartado</h3><p style="margin-top:10px;font-size:14px">Modelos y marcos de trabajo clave.</p></div>
+        <div class="card dark" style="padding:34px 32px"><span class="num-badge">1.3</span><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.5a3 3 0 0 1 0 5.8"/></svg></div><h3 style="font-size:19px">Tercer subapartado</h3><p style="margin-top:10px;font-size:14px">Roles y habilidades del equipo.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide section-divider">
+    <div class="brandbar"><div class="brand light"><span class="dot"></span>Nombre del Curso</div><span class="num" style="color:rgba(255,255,255,.5)">Sección 01</span></div>
+    <div class="col" style="width:62%;justify-content:center;padding:0 72px;position:relative;z-index:2">
+      <span class="kicker" style="color:var(--primary-300)">Subapartado 1.1</span>
+      <h1 style="font-size:52px;color:#fff;margin-top:18px">Título de la primera sección</h1>
+      <p style="color:rgba(255,255,255,.7);font-size:19px;margin-top:24px;max-width:520px">Introducción al contenido de esta primera parte del tema.</p>
+      <div style="display:flex;gap:12px;margin-top:34px">
+        <span class="tag" style="background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.16)">Concepto A</span>
+        <span class="tag" style="background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.16)">Concepto B</span>
+        <span class="tag" style="background:rgba(255,255,255,.08);color:#fff;border-color:rgba(255,255,255,.16)">Concepto C</span>
+      </div>
+    </div>
+    <div style="position:absolute;right:-30px;top:50%;transform:translateY(-50%);font-family:var(--font-display);font-size:420px;font-weight:var(--w-display);color:rgba(255,255,255,.06);line-height:.8;letter-spacing:-.05em;z-index:1">01</div>
+    <div class="blob" style="width:340px;height:340px;background:var(--blob);right:120px;bottom:-120px;filter:blur(48px)"></div>
+  </section>
+
+  <section class="slide">
+    <div class="brandbar"><div class="brand"><span class="dot"></span>Nombre del Curso</div><span class="num">1.1 · Conceptos</span></div>
+    <div class="col" style="width:55%;justify-content:center;padding:0 0 0 72px">
+      <span class="tag"><span class="pip"></span>Concepto clave</span>
+      <h2 style="font-size:38px;margin:18px 0 0">Nombre del <span class="vio">concepto</span></h2>
+      <p class="lead" style="margin-top:20px;max-width:540px">Explicación clara y concisa extraída literalmente del guion del tema.</p>
+      <div style="display:flex;gap:40px;margin-top:30px">
+        <div><div class="stat" style="font-size:46px">87%</div><p style="font-size:13px;margin-top:6px">de retención media</p></div>
+        <div><div class="stat" style="font-size:46px">3×</div><p style="font-size:13px;margin-top:6px">más rápido que antes</p></div>
+      </div>
+    </div>
+    <div style="width:45%;padding:64px 72px 64px 40px;display:flex">
+      <div class="imgbox" style="width:100%;height:100%"><span class="ph-badge">Imagen · placeholder</span></div>
+    </div>
+  </section>
+
+  <section class="slide outro">
+    <div class="brandbar"><div class="brand"><span class="dot"></span>Nombre del Curso</div><span class="num">Conclusión</span></div>
+    <div class="col" style="width:58%;justify-content:center;padding:0 40px 0 72px">
+      <span class="tag"><span class="pip"></span>Hemos recorrido los fundamentos</span>
+      <h2 style="font-size:32px;margin:16px 0 0">El aprendizaje es <span class="vio">solo el comienzo</span></h2>
+      <p class="lead" style="margin-top:18px;font-size:16px">Resumen de los conceptos principales explorados en este tema.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:20px">
+        <div style="display:flex;gap:12px;align-items:center;font-size:14px"><span style="width:18px;height:18px;border-radius:6px;background:var(--grad);flex:none;display:inline-block"></span><span>Concepto clave uno del tema.</span></div>
+        <div style="display:flex;gap:12px;align-items:center;font-size:14px"><span style="width:18px;height:18px;border-radius:6px;background:var(--grad);flex:none;display:inline-block"></span><span>Concepto clave dos del tema.</span></div>
+      </div>
+    </div>
+    <div class="col" style="width:42%;height:100%;background:var(--primary-soft);align-items:center;justify-content:center;position:relative">
+      <div class="blob" style="width:200px;height:200px;background:var(--blob);bottom:50px;right:-40px;filter:blur(38px)"></div>
+      <div class="tutor" style="width:270px;height:270px">
+        <span class="ring"></span><span class="ring r2"></span>
+        <div class="photo" style="width:270px;height:270px"></div>
+        <span class="live"><span class="blink"></span>¡Lo lograste!</span>
+      </div>
+      <p style="margin-top:42px;font-weight:700;color:var(--ink);font-size:15px">Voz en off · Cierre</p>
+    </div>
+  </section>
+
+  <section class="slide closing">
+    <div class="blob" style="width:320px;height:320px;background:rgba(255,255,255,.14);top:-80px;left:-60px;filter:blur(44px)"></div>
+    <div class="blob" style="width:220px;height:220px;background:rgba(255,255,255,.10);bottom:-40px;right:80px;filter:blur(40px)"></div>
+    <div class="col" style="width:100%;align-items:center;justify-content:center;text-align:center;padding:0 120px;position:relative;z-index:2">
+      <span class="tag" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.28);margin:0 auto">El siguiente paso es tuyo</span>
+      <h1 style="font-size:50px;color:#fff;margin-top:24px;max-width:920px">¡Estás listo para aplicar lo aprendido y dar el <span style="color:#FBE9A6">siguiente paso</span>!</h1>
+      <div style="display:flex;align-items:center;gap:11px;margin-top:40px"><div style="width:26px;height:26px;border-radius:8px;background:#fff"></div><span style="font-weight:800;font-size:16px;color:#fff">Awake Lab · Academia</span></div>
+    </div>
+  </section>
+</div>
+<div id="nav">
+  <button id="prev" aria-label="Anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+  <span id="counter">01 / 01</span>
+  <div id="dots"></div>
+  <button id="next" aria-label="Siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+</div>
+<div class="hint">← / → · barra espaciadora</div>
+<script>(function () {
+  'use strict';
+  var stage    = document.getElementById('stage');
+  var slides   = Array.from(document.querySelectorAll('.slide'));
+  var total    = slides.length;
+  var cur      = 0;
+
+  var dotsEl = document.getElementById('dots');
+  slides.forEach(function (_, i) {
+    var d = document.createElement('span');
+    d.className = 'd';
+    d.dataset.i = String(i);
+    d.addEventListener('click', function () { go(i); });
+    if (dotsEl) dotsEl.appendChild(d);
+  });
+  var dotEls = dotsEl ? Array.from(dotsEl.children) : [];
+
+  function pad(n) { return String(n + 1).padStart(2, '0'); }
+
+  function render() {
+    slides.forEach(function (s, i) {
+      s.classList.toggle('active', i === cur);
+      s.classList.toggle('prev',   i < cur);
+    });
+    dotEls.forEach(function (d, i) { d.classList.toggle('on', i === cur); });
+    var counter  = document.getElementById('counter');
+    var progress = document.getElementById('progress');
+    if (counter)  counter.textContent        = pad(cur) + ' / ' + pad(total - 1);
+    if (progress) progress.style.width       = (total > 1 ? (cur / (total - 1)) * 100 : 100) + '%';
+  }
+
+  function go(i)  { cur = Math.max(0, Math.min(total - 1, i)); render(); }
+  function next() { go(cur + 1); }
+  function prev() { go(cur - 1); }
+
+  var btnNext = document.getElementById('next');
+  var btnPrev = document.getElementById('prev');
+  if (btnNext) btnNext.addEventListener('click', next);
+  if (btnPrev) btnPrev.addEventListener('click', prev);
+
+  window.addEventListener('keydown', function (e) {
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key))      { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { go(0); }
+    else if (e.key === 'End')  { go(total - 1); }
+  });
+
+  function fit() {
+    if (!stage) return;
+    var sx = window.innerWidth  / 1280;
+    var sy = window.innerHeight / 720;
+    stage.style.transform = 'scale(' + Math.min(sx, sy) + ')';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+  render();
+}());</script>
+</body>
+</html>

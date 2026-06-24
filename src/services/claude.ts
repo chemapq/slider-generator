@@ -103,7 +103,7 @@ Split 62/38 (el 38% es decorativo a la derecha):
 - brandbar con \`brand.light\`
 - Columna izquierda (62%): kicker (\`color:var(--primary-300)\`), h1 (~52px, #fff), p (muted), tags ghost.
 - Decoración derecha: número de sección gigante (\`position:absolute;right:-30px;font-size:420px;font-weight:900;color:rgba(255,255,255,.06)\`).
-- .blob (\`background:rgba(108,76,241,.35);right:120px;bottom:-120px;filter:blur(40px)\`).
+- .blob (\`background:var(--blob);right:120px;bottom:-120px;filter:blur(40px)\`).
 
 ### 5. \`outro\` — Conclusión con tutor
 Split ~58/42:
@@ -198,6 +198,7 @@ function buildSystemPrompt(
 --bg          ${p.background}   fondo de slide blanco
 --grad                          degradado principal de marca
 --grad-soft                     degradado suave
+--blob                          color de los blobs decorativos (glow de marca)
 --shadow-sm / --shadow / --shadow-lg   sombras
 --radius (26px) / --radius-sm (16px)   redondeos
 \`\`\`
@@ -270,7 +271,7 @@ El renderer inyecta el src del img. Para "outro" usar width/height ~270px.
 
 ### Decoración
 \`\`\`html
-<div class="blob" style="width:Xpx;height:Xpx;background:rgba(108,76,241,.35);POSICIÓN;filter:blur(40px)"></div>
+<div class="blob" style="width:Xpx;height:Xpx;background:var(--blob);POSICIÓN;filter:blur(40px)"></div>
 \`\`\`
 Usar en portadas, divisores y cierre.
 

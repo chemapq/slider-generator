@@ -18,6 +18,7 @@ VARIABLES DE TOKENS (en :root):
 --ink, --ink-soft, --muted, --muted-2
 --card, --card-2, --black, --bg
 --grad (degradado principal), --grad-soft (degradado suave)
+--blob (color de los blobs decorativos: glow de marca semitransparente)
 --shadow-sm, --shadow, --shadow-lg
 --radius (redondeo grande), --radius-sm (redondeo medio)
 --avatar-ring (color del anillo del tutor)
