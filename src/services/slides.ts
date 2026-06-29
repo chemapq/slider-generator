@@ -1,6 +1,7 @@
 import type { Slides } from '../config/schema.js'
 import type { Theme } from '../config/theme-schema.js'
 import { renderDeck } from '../templates/deck.js'
+import type { DeckAudio } from './tts.js'
 
 export interface DeckImages {
   /** id de imagen placeholder ("h1", "v2"…) → data URI. */
@@ -68,7 +69,13 @@ function fillSlots(html: string, images: DeckImages): string {
   return html
 }
 
-export function renderSlides(data: Slides, theme: Theme, images?: DeckImages): string {
+export function renderSlides(
+  data: Slides,
+  theme: Theme,
+  images?: DeckImages,
+  audio?: DeckAudio,
+  opts?: { subtitles?: boolean },
+): string {
   const imgs: DeckImages = images ?? { placeholders: new Map() }
 
   const sections = data.slides
@@ -82,5 +89,29 @@ export function renderSlides(data: Slides, theme: Theme, images?: DeckImages): s
     })
     .join('\n')
 
-  return renderDeck({ title: data.title, css: theme.css, slides: sections })
+  const audioScript = buildAudioScript(audio, opts)
+  return renderDeck({ title: data.title, css: theme.css, slides: sections, audioScript })
+}
+
+/**
+ * Construye el <script> con window.__DECK_AUDIO__ y window.__DECK_OPTS__.
+ * Devuelve undefined cuando no hay audio → deck sin motor de voz.
+ *
+ * Escapa `</` → `<\/` para evitar que cadenas en el JSON cierren el <script>.
+ */
+function buildAudioScript(
+  audio: DeckAudio | undefined,
+  opts?: { subtitles?: boolean },
+): string | undefined {
+  if (!audio) return undefined
+
+  const audioData = audio.map((a) =>
+    a === null ? null : { src: `data:${a.mime};base64,${a.audioBase64}`, cues: a.cues },
+  )
+
+  // Escapar </ para que el parser HTML no cierre el <script> prematuramente.
+  const audioJson = JSON.stringify(audioData).replace(/<\//g, '<\\/')
+  const optsJson = JSON.stringify({ subtitles: opts?.subtitles !== false })
+
+  return `<script>window.__DECK_AUDIO__=${audioJson};window.__DECK_OPTS__=${optsJson};</script>`
 }

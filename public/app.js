@@ -7,6 +7,8 @@ let avatarFile = null
 let refFiles = []
 let generatedHtml = null
 let blobUrl = null
+let voiceEnabled = false
+let subtitlesEnabled = true
 
 const $ = (id) => document.getElementById(id)
 
@@ -18,6 +20,9 @@ const statusEl = $('status')
 const resultArea = $('result-area')
 const preview = $('preview')
 const downloadBtn = $('download-btn')
+const chkVoice = $('chk-voice')
+const chkSubs  = $('chk-subs')
+const subsRow  = $('subs-row')
 
 // --- Cargar temas ---
 async function loadThemes() {
@@ -101,6 +106,14 @@ wireZone('dz-refs', 'in-refs', { multiple: true }, (files, zone) => {
   updateThemeSource()
 })
 
+// --- Checkboxes de voz ---
+chkVoice.addEventListener('change', () => {
+  voiceEnabled = chkVoice.checked
+  subsRow.classList.toggle('disabled', !voiceEnabled)
+  chkSubs.disabled = !voiceEnabled
+})
+chkSubs.addEventListener('change', () => { subtitlesEnabled = chkSubs.checked })
+
 // Con referencias de estilo, ELLAS definen el tema: ocultamos el desplegable.
 function updateThemeSource() {
   const fromImages = refFiles.length > 0
@@ -113,12 +126,12 @@ generateBtn.addEventListener('click', async () => {
   if (!pdfFile) return
 
   generateBtn.disabled = true
-  showStatus(
-    'loading',
-    refFiles.length
+  const loadingMsg = voiceEnabled
+    ? 'Generando presentación con Claude + narración TTS… puede tardar 3-5 minutos.'
+    : refFiles.length
       ? 'Generando la presentación guiada por tus referencias con Claude… puede tardar 1-2 minutos.'
-      : 'Generando presentación con Claude… puede tardar 1-2 minutos.',
-  )
+      : 'Generando presentación con Claude… puede tardar 1-2 minutos.'
+  showStatus('loading', loadingMsg)
   hideResult()
 
   const form = new FormData()
@@ -128,6 +141,8 @@ generateBtn.addEventListener('click', async () => {
   imageFiles.forEach((f) => form.append('images', f))
   if (avatarFile) form.append('avatar', avatarFile)
   refFiles.forEach((f) => form.append('references', f))
+  if (voiceEnabled) form.append('voice', 'on')
+  form.append('subtitles', subtitlesEnabled ? 'on' : 'off')
 
   try {
     const res = await fetch('/api/generate', { method: 'POST', body: form })
@@ -137,7 +152,9 @@ generateBtn.addEventListener('click', async () => {
     }
     generatedHtml = await res.text()
     showResult(generatedHtml)
-    clearStatus()
+    const voiceWarning = res.headers.get('X-Voice-Warning')
+    if (voiceWarning) showStatus('warning', '⚠️ ' + voiceWarning)
+    else clearStatus()
   } catch (err) {
     showStatus('error', err instanceof Error ? err.message : String(err))
   } finally {

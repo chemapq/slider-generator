@@ -57,6 +57,18 @@ const Slide = z.object({
   // Los slots data-img / data-avatar los rellena el renderer (renderSlides).
   html: z.string(),
   notes: z.string().optional(),
+  // Tramo del texto ÍNTEGRO y literal del PDF que corresponde a esta slide,
+  // con limpieza ligera (sin nº de página / encabezados repetidos / cortes de palabra).
+  //
+  // Invariante: la concatenación en orden de todas las narrations = texto íntegro del PDF.
+  // No se resume ni se inventa contenido; si un fragmento no encaja en una slide concreta,
+  // se asigna a la slide de contenido más próxima en el orden del guion.
+  //
+  // Diferencia con `notes`: notes son para el presentador y NO se locutan; narration SÍ se
+  // locuta y es texto plano (sin HTML ni Markdown). Puede omitirse en slides decorativas
+  // (p. ej. section-divider sin texto propio), pero el texto que iría ahí NO se pierde:
+  // se empuja a la slide de contenido más cercana.
+  narration: z.string().optional(),
 })
 
 export const SlidesSchema = z.object({

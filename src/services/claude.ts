@@ -5,7 +5,10 @@ import type { Theme } from '../config/theme-schema.js'
 import type { ReferenceImageBlock } from './references.js'
 
 const MODEL = 'claude-opus-4-8'
-const MAX_TOKENS = 64000
+// Sin narración el output era ~30-40k tokens (slides HTML + thinking).
+// Con narración ≈ duplica (se añade el texto íntegro del PDF otra vez).
+// Subido a 100 000; vigilar stop_reason: max_tokens en PDFs muy largos.
+const MAX_TOKENS = 100000
 
 // maxRetries por defecto del SDK es 2; lo subimos para aguantar mejor los
 // 429/5xx/overloaded transitorios (reintenta con backoff exponencial + jitter).
@@ -182,6 +185,7 @@ function buildSystemPrompt(
 - La clase especial del <section> va en "slideClass" (ver valores canónicos abajo).
 - Genera ~17–19 slides: aproximadamente 1 idea central del guion por slide.
 - Texto conciso y apto para slide: frases cortas. Para listas largas usa una slide de lista completa.
+- Devuelve también "narration" en cada slide (ver sección ## Narración más abajo).
 
 ## Tokens disponibles (usa var(…) para anclar colores/sombras/radios)
 \`\`\`
@@ -292,7 +296,25 @@ ${freeMode ? FREE_LAYOUT : STRICT_LAYOUT}
 ## Reglas de imágenes
 ${buildImageRules(manifest, hasAvatar, freeMode)}
 
-${freeMode ? FREE_DENSITY : STRICT_DENSITY}`.trim()
+${freeMode ? FREE_DENSITY : STRICT_DENSITY}
+
+## Narración (voz en off)
+
+Por cada slide, además del \`html\`, devuelve \`narration\`: el **fragmento del texto ÍNTEGRO y
+literal del PDF** que corresponde a esa slide.
+
+Reglas obligatorias:
+- La **concatenación en orden de todas las \`narration\`** debe reproducir el texto íntegro del PDF.
+  No resumas, no inventes, no añadas frases de transición que no estén en el PDF, **no te dejes
+  contenido**. Si un fragmento no encaja en ninguna slide concreta, asígnalo a la slide de contenido
+  más próxima en el orden del guion.
+- **Limpieza ligera permitida (y solo esta):** quitar números de página, encabezados/pies repetidos,
+  marcas de viñeta sueltas y unir palabras partidas por guion de fin de línea; normalizar espacios.
+  No cambiar el orden ni la redacción del contenido.
+- \`narration\` es **texto plano** (sin HTML, sin Markdown): se va a locutar directamente.
+- Distíntela del \`html\` visible (que sí es condensado) y de \`notes\` (que NO se locuta).
+- Slides sin texto asociado (p. ej. un section-divider puramente decorativo): \`narration\` puede
+  omitirse, pero el texto que iría ahí NO se pierde — se empuja a la slide de contenido más cercana.`.trim()
 }
 
 export async function generateSlides(opts: GenerateOptions): Promise<Slides> {

@@ -105,6 +105,29 @@
       padding: 0.6rem 0.85rem; font-size: 0.88rem; color: #c0bcff; font-weight: 500;
     }
 
+    /* Checkboxes de voz */
+    .voice-opts {
+      display: flex; flex-direction: column; gap: 0.5rem;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.25rem;
+    }
+    .toggle-row {
+      display: flex; align-items: center; gap: 0.7rem;
+      cursor: pointer; user-select: none;
+    }
+    .toggle-row input[type="checkbox"] {
+      width: 15px; height: 15px; accent-color: var(--brand);
+      flex-shrink: 0; cursor: pointer;
+    }
+    .toggle-label { font-size: 0.9rem; font-weight: 500; color: var(--text); }
+    .toggle-hint  { font-size: 0.74rem; color: var(--muted); margin-left: 0.25rem; }
+    .toggle-row.disabled .toggle-label,
+    .toggle-row.disabled .toggle-hint { opacity: 0.38; }
+    .toggle-row.disabled { cursor: default; pointer-events: none; }
+
+    /* Aviso de voz no disponible */
+    #status.warning { display: block; background: #2a2218; color: #ffa940; border: 1px solid #3a3020; }
+
     button#generate-btn {
       background: var(--brand); color: #fff; border: none; border-radius: 8px;
       padding: 0.65rem 1.6rem; font-size: 0.95rem; font-weight: 600; cursor: pointer;
@@ -186,9 +209,26 @@
       </div>
     </div>
 
+    <!-- Voz y subtítulos (opcional) -->
+    <div>
+      <p class="section-title">3 · Voz y subtítulos <span class="opt">— opcional · requiere ElevenLabs</span></p>
+      <div class="voice-opts">
+        <label class="toggle-row" id="voice-row">
+          <input type="checkbox" id="chk-voice">
+          <span class="toggle-label">Añadir narración por voz</span>
+          <span class="toggle-hint">· free tier: cuota limitada (~10k chars/mes)</span>
+        </label>
+        <label class="toggle-row disabled" id="subs-row">
+          <input type="checkbox" id="chk-subs" checked disabled>
+          <span class="toggle-label">Subtítulos</span>
+          <span class="toggle-hint">· activados al abrir el deck</span>
+        </label>
+      </div>
+    </div>
+
     <!-- Tema + generar -->
     <div>
-      <p class="section-title">3 · Tema y generación</p>
+      <p class="section-title">4 · Tema y generación</p>
       <div class="controls">
         <div class="field" id="theme-field">
           <label class="lbl" for="theme-select">Tema</label>

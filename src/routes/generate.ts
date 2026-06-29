@@ -9,6 +9,7 @@ import {
   type UploadedImage,
 } from '../services/images.js'
 import type { ReferenceImageBlock } from '../services/references.js'
+import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
@@ -56,8 +57,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    *                 como GUÍA DE DISEÑO: Claude compone las slides parecidas a ellas
    *                 (modo libre). No derivan un tema; el tema solo aporta el contrato
    *                 de tokens base.
-   *   theme       → nombre del tema (opcional; por defecto "timely-ai"). Aporta el
-   *                 contrato de tokens base; con referencias, estas guían el diseño.
+   *   theme       → nombre del tema (opcional; por defecto "timely-ai").
+   *   voice       → "on" para activar narración TTS (requiere ELEVENLABS_API_KEY).
+   *   subtitles   → "on"/"off" — estado inicial de subtítulos en el deck (default "on").
+   *   voiceId     → voice ID de ElevenLabs (sobreescribe ELEVENLABS_VOICE_ID del env).
    */
   app.post('/api/generate', async (req, reply) => {
     let pdfBuffer: Buffer | null = null
@@ -65,6 +68,9 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     const referenceFiles: UploadedImage[] = []
     let avatarFile: UploadedImage | null = null
     let themeName = 'timely-ai'
+    let voiceEnabled = false
+    let subtitlesEnabled = true
+    let voiceIdOverride: string | undefined
 
     try {
       for await (const part of req.parts()) {
@@ -89,8 +95,11 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
               break
             // Otros campos de archivo se ignoran.
           }
-        } else if (part.fieldname === 'theme' && typeof part.value === 'string' && part.value) {
-          themeName = part.value
+        } else if (typeof part.value === 'string') {
+          if (part.fieldname === 'theme' && part.value) themeName = part.value
+          else if (part.fieldname === 'voice') voiceEnabled = part.value === 'on'
+          else if (part.fieldname === 'subtitles') subtitlesEnabled = part.value !== 'off'
+          else if (part.fieldname === 'voiceId' && part.value) voiceIdOverride = part.value
         }
       }
     } catch (err: unknown) {
@@ -140,7 +149,28 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         // layout (modo libre). Sin referencias, el array va vacío (modo estricto).
         referenceImages,
       })
-      html = renderSlides(slides, theme, deckImages)
+
+      // TTS: solo si voice=on y hay API key. Los fallos son aislados: generamos
+      // el deck sin audio en lugar de tumbar toda la petición.
+      let audio: DeckAudio | undefined
+      if (voiceEnabled && process.env.ELEVENLABS_API_KEY) {
+        try {
+          const narrations = slides.slides.map((s) => s.narration)
+          audio = await synthesizeDeck(
+            narrations,
+            voiceIdOverride ? { voiceId: voiceIdOverride } : {},
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.warn('[tts] fallo general del servicio de voz:', msg)
+          reply.header(
+            'X-Voice-Warning',
+            'Servicio de voz no disponible. El deck se generó sin audio.',
+          )
+        }
+      }
+
+      html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled })
     } catch (err: unknown) {
       if (isTransientApiError(err)) {
         return reply.status(503).send({
