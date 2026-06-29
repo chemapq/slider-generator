@@ -436,8 +436,9 @@ modificados). Antes de seguir:
 
 1. **Regenerar SOLO el audio sin re-llamar a Claude.** Ataca directamente el dolor del free tier:
    hoy cambiar de voz re-genera el deck entero y re-gasta tokens de Claude. Desacoplar la pasada de
-   narración (favorecido ya por el diseño de la Fase V2) permite iterar voces gastando únicamente
-   cuota de ElevenLabs. **Mayor impacto inmediato.**
+   narración (favorecido ya por el diseño de la Fase V2) permite iterar voces sin re-pagar Claude ni
+   esperar de nuevo su pasada lenta. **Mayor impacto inmediato.** → **plan detallado por fases
+   (R0–R6) al final de este documento.**
 2. **Export MP4 y/o `.vtt`/`.srt`.** Cierre temático: el proyecto nace de `awk-video-test`, un test
    de **vídeo**. Con audio + cues sincronizados ya en mano, renderizar a vídeo (o exportar los
    subtítulos como pista aparte) es el destino natural.
@@ -448,3 +449,292 @@ modificados). Antes de seguir:
 
 - **Karaoke** (resaltado palabra a palabra) usando los timestamps por carácter ya disponibles.
 - **Selector de varias voces** / ajustes de `voice_settings` (estabilidad, similaridad) desde la UI.
+
+---
+
+# Plan detallado — Mejora #1: Regenerar solo el audio (sin re-llamar a Claude)
+
+> Fases **R0–R6**, independientes de V0–V8 (que ya están cerradas). Pensado para ejecutarse de
+> principio a fin por un agente sin más contexto que este documento + el código.
+
+## Problema e idea clave
+
+Hoy `/api/generate` hace TODO en una pasada: `PDF → Claude → Slides JSON → (TTS) → deck HTML`. Si
+quieres **cambiar la voz** (o **añadir voz** a un deck que generaste sin ella, o **reintentar** un
+TTS que falló), tienes que **re-llamar a Claude**: lento y re-gasta tokens.
+
+**Idea clave (ya habilitada por el diseño actual):** Claude devuelve `narration` en **cada** slide
+**siempre**, esté la voz activada o no — la sección `## Narración` del prompt es incondicional
+(`src/services/claude.ts`, `buildSystemPrompt`). Por tanto, **el `Slides` JSON ya contiene todo lo
+necesario para sintetizar audio**. Si guardamos ese JSON (y las imágenes ya resueltas) tras la
+generación, podemos re-sintetizar y re-renderizar **sin tocar a Claude**.
+
+**Qué ahorra y qué NO (ser honestos):**
+- ✅ Ahorra **tokens de Claude** y la **espera** de su pasada (1–5 min).
+- ✅ Permite **añadir voz a posteriori** a un deck generado sin voz (las narraciones ya están).
+- ✅ Permite **reintentar** audio tras un fallo de TTS sin rehacer nada más.
+- ❌ **NO** ahorra cuota de ElevenLabs: el TTS factura por carácter y un audio nuevo siempre se
+  sintetiza de cero. (Iterar voces sigue consumiendo free tier; ver aviso de cuota en V8.)
+
+## Arquitectura
+
+```
+POST /api/generate (cambia)
+  … Claude … → slides → render → HTML
+  + guarda en un STORE en memoria { slides, themeName, images } bajo un deckId
+  + devuelve el deckId en la cabecera X-Deck-Id
+
+POST /api/audio   (NUEVO)   body JSON { deckId, voiceId?, subtitles? }
+  → recupera { slides, themeName, images } del store (404 si no está)
+  → narrations = slides.slides.map(s => s.narration)
+  → synthesizeDeck(narrations, { voiceId })      ← SOLO ElevenLabs, NADA de Claude
+  → renderSlides(slides, loadTheme(themeName), images, audio, { subtitles })
+  → devuelve el nuevo HTML (mismo deckId reutilizable)
+
+GET /api/voices  (NUEVO, opcional)  → lista de voces para el selector de la UI
+```
+
+El store es **en memoria** (Map con tope y desalojo FIFO). Es un tool local monousuario: perder el
+store al reiniciar el server es aceptable (cache miss → 404 → "regenera el deck"). No se introduce
+base de datos ni disco.
+
+## Hechos del código actual (anclas para no improvisar)
+
+- `routes/generate.ts`: ya tiene `themeName`, `voiceIdOverride`, `subtitlesEnabled`, el patrón
+  try/catch de TTS (líneas ~156-171) y `isTransientApiError`. El render final es
+  `renderSlides(slides, theme, deckImages, audio, { subtitles })` (línea ~173).
+- `services/tts.ts`: `synthesizeDeck(narrations, { voiceId?, modelId?, outputFormat? })` →
+  `DeckAudio`. Ya aísla fallos por slide (slide muda) y lanza solo si falta API key / voiceId.
+- `services/slides.ts`: `renderSlides(data, theme, images?, audio?, { subtitles? })`. **Reutilizable
+  tal cual** para el re-render; no necesita cambios.
+- `services/themes.ts`: `loadTheme(name)` lee y valida el JSON del tema (barato). Por eso guardamos
+  `themeName`, no el objeto `Theme`.
+- `DeckImages = { placeholders: Map<string,string>, avatar?: string }` (data URIs). **No** es
+  re-derivable sin re-subir las imágenes → **hay que cachearlo** en el store.
+- `server.ts`: Fastify con `@fastify/multipart` (solo intercepta `multipart/form-data`) y
+  `@fastify/static`. Un endpoint nuevo con `application/json` se parsea con el parser por defecto de
+  Fastify → no hay que registrar nada extra. `crypto.randomUUID()` está disponible (Node ≥18).
+
+---
+
+## Fase R0 — Store de decks en memoria (`src/services/deck-store.ts`, NUEVO)
+
+**Objetivo:** guardar el contexto de render de cada deck bajo un id, con tope y desalojo.
+
+Pasos:
+1. Crear `src/services/deck-store.ts`:
+   ```ts
+   import { randomUUID } from 'crypto'
+   import type { Slides } from '../config/schema.js'
+   import type { DeckImages } from './slides.js'
+
+   export interface DeckContext {
+     slides: Slides
+     themeName: string
+     images: DeckImages
+     createdAt: number
+   }
+
+   const MAX_DECKS = 20            // tope: cada entrada retiene data URIs de imágenes (varios MB)
+   const TTL_MS = 2 * 60 * 60 * 1000  // 2 h; opcional
+
+   const store = new Map<string, DeckContext>()
+
+   export function putDeck(ctx: Omit<DeckContext, 'createdAt'>): string {
+     const id = randomUUID()
+     store.set(id, { ...ctx, createdAt: Date.now() })
+     // Desalojo FIFO: el Map preserva orden de inserción.
+     while (store.size > MAX_DECKS) {
+       const oldest = store.keys().next().value
+       if (oldest === undefined) break
+       store.delete(oldest)
+     }
+     return id
+   }
+
+   export function getDeck(id: string): DeckContext | undefined {
+     const ctx = store.get(id)
+     if (!ctx) return undefined
+     if (Date.now() - ctx.createdAt > TTL_MS) { store.delete(id); return undefined }
+     return ctx
+   }
+   ```
+2. **Nota de memoria:** documentar en el módulo que cada entrada retiene las imágenes embebidas
+   (data URIs) → de ahí el tope `MAX_DECKS`. Es deliberadamente pequeño.
+
+**Verificación:** `tsc --noEmit`. Test unitario opcional: `putDeck` 21 veces → `getDeck` del primero
+devuelve `undefined` (desalojado), el último sigue vivo.
+
+---
+
+## Fase R1 — `/api/generate` guarda el contexto y devuelve `X-Deck-Id`
+
+**Objetivo:** que toda generación quede recuperable para re-sintetizar audio después.
+
+Pasos (en `routes/generate.ts`):
+1. Importar `putDeck` de `deck-store.js`.
+2. Tras generar `slides` y **antes o después** de `renderSlides`, guardar SIEMPRE el contexto
+   (también con voz desactivada — eso es lo que habilita "añadir voz después"):
+   ```ts
+   const deckId = putDeck({ slides, themeName, images: deckImages })
+   reply.header('X-Deck-Id', deckId)
+   ```
+3. No cambiar nada más del flujo: la respuesta sigue siendo el HTML.
+
+**Verificación:** generar un deck (incluso **sin** voz) → la respuesta trae la cabecera
+`X-Deck-Id`. `tsc --noEmit` OK.
+
+---
+
+## Fase R2 — Endpoint `POST /api/audio` (regenera solo el audio)
+
+**Objetivo:** re-sintetizar y re-renderizar a partir del store, sin Claude.
+
+Contrato:
+- **Request** (`application/json`): `{ deckId: string, voiceId?: string, subtitles?: boolean }`.
+- **Response OK:** `text/html` (el deck nuevo). Cabeceras: `X-Deck-Id` (mismo id, reutilizable) y,
+  si hubo degradación, `X-Voice-Warning`.
+- **Errores:**
+  - `404` si `getDeck(deckId)` es `undefined` (server reiniciado / expirado / id inválido):
+    `{ error: 'El deck ya no está disponible en el servidor. Vuelve a generarlo.' }`.
+  - `409` si no hay `ELEVENLABS_API_KEY`: `{ error: 'El servicio de voz no está configurado.' }`.
+  - `502` si `synthesizeDeck` lanza por completo (a diferencia de `/api/generate`, aquí el usuario
+    pidió audio **explícitamente** → no devolvemos un deck mudo silenciosamente; que la UI conserve
+    el preview anterior y muestre el error). Mapear 429/5xx persistentes a un mensaje "servicio de
+    voz saturado, inténtalo en unos segundos".
+
+Pasos:
+1. En `generateRoutes`, añadir `app.post('/api/audio', …)`.
+2. Leer `req.body` (Fastify parsea JSON). Validar `deckId` (string no vacío) → si no, `400`.
+3. `const ctx = getDeck(deckId)` → si falta, `404` (mensaje de arriba).
+4. Si no hay `process.env.ELEVENLABS_API_KEY` → `409`.
+5. `const narrations = ctx.slides.slides.map((s) => s.narration)`.
+   - **Caso todo vacío:** si ninguna narración tiene texto, no llames a ElevenLabs: re-renderiza sin
+     audio y responde con `X-Voice-Warning: 'El deck no tiene narración que locutar.'` (deck mudo,
+     ahorra cuota).
+6. `try { audio = await synthesizeDeck(narrations, voiceId ? { voiceId } : {}) } catch → 502/503`.
+7. `const theme = await loadTheme(ctx.themeName).catch(fallback)` (reutiliza el patrón de
+   `/api/generate`: si falla, primer tema de `listThemes()`).
+8. `const html = renderSlides(ctx.slides, theme, ctx.images, audio, { subtitles: subtitles !== false })`.
+9. `reply.header('X-Deck-Id', deckId)` (mismo contexto sigue válido para volver a iterar) →
+   responder `text/html`.
+
+**Verificación (consume cuota — usar deck de 1 slide / narración corta):** con un `deckId` de un
+deck recién generado, `curl -X POST /api/audio -H 'Content-Type: application/json' -d '{"deckId":"…"}'`
+→ devuelve HTML que suena. Repetir con otro `voiceId` → voz distinta. **Confirmar en los logs que
+NO hay llamada a Anthropic**, solo a ElevenLabs. `deckId` inexistente → `404`.
+
+---
+
+## Fase R3 — `GET /api/voices` (opcional, para el selector)
+
+**Objetivo:** poblar un desplegable de voces sin hardcodear ids en el front.
+
+Pasos:
+1. Nuevo env opcional en `.env.example`:
+   ```
+   # Voces seleccionables en la UI (JSON). Si se omite, solo se ofrece la voz por defecto.
+   ELEVENLABS_VOICES=[{"id":"<voiceId>","label":"Lucía (es-ES)"},{"id":"<voiceId2>","label":"Mateo (es-LA)"}]
+   ```
+2. `app.get('/api/voices', …)`: parsear `ELEVENLABS_VOICES` (try/catch; si falla o está vacío,
+   devolver `[]`). Si está vacío pero hay `ELEVENLABS_VOICE_ID`, devolver
+   `[{ id: <esa>, label: 'Voz por defecto' }]`. Incluir también un flag de si la voz está
+   configurada: `{ configured: Boolean(process.env.ELEVENLABS_API_KEY), voices: [...] }`.
+
+**Verificación:** `GET /api/voices` devuelve el JSON esperado con y sin `ELEVENLABS_VOICES`.
+
+> Alternativa mínima sin esta fase: omitir el desplegable y exponer en la UI un **campo de texto
+> libre para `voiceId`** (reutiliza el plumbing existente). R3 solo mejora la UX.
+
+---
+
+## Fase R4 — UI: panel "Regenerar audio / cambiar voz" (`public/index.html`, `public/app.js`)
+
+**Objetivo:** tras generar, poder re-sintetizar la voz sin re-generar el deck.
+
+Pasos (`index.html`): dentro de `#result-area`, añadir un bloque "Audio" con:
+- un `<select id="voice-select">` (poblado desde `/api/voices`; oculto/sustituido por un input de
+  texto si R3 no se hace),
+- un botón `#regen-audio-btn` "Regenerar audio",
+- (opcional) un checkbox de subtítulos para el re-render.
+Mostrarlo solo cuando `voices.configured` sea true.
+
+Pasos (`app.js`):
+1. Nuevo estado: `let currentDeckId = null`.
+2. En el handler de generar, tras `res.ok`, leer y guardar
+   `currentDeckId = res.headers.get('X-Deck-Id')`. (El navegador lee cabeceras propias en
+   same-origin; no hay CORS.)
+3. Al cargar, `GET /api/voices` → poblar `#voice-select`; si `!configured`, ocultar el panel.
+4. Handler de `#regen-audio-btn` (habilitado solo si `currentDeckId`):
+   ```js
+   const res = await fetch('/api/audio', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ deckId: currentDeckId, voiceId: voiceSelect.value, subtitles: subtitlesEnabled }),
+   })
+   ```
+   - OK → `generatedHtml = await res.text()`; `showResult(generatedHtml)`; refrescar preview y
+     descarga; `currentDeckId = res.headers.get('X-Deck-Id') || currentDeckId`; mostrar
+     `X-Voice-Warning` si viene.
+   - `404` → mensaje "El deck ya no está en el servidor (se reinició). Vuelve a generarlo." y
+     deshabilitar el panel hasta la próxima generación.
+   - otros errores → `showStatus('error', …)`, **conservando** el preview actual.
+5. **Mensaje clave en la UI:** este panel funciona aunque el deck se generara **sin** voz (las
+   narraciones ya existen) → es la vía para "añadirle voz después". Reflejarlo en el copy del panel.
+
+**Verificación (consume cuota — deck corto):** generar **sin** voz → aparece el panel de audio →
+elegir voz A → "Regenerar audio" → el preview ahora suena; cambiar a voz B → suena distinta. La
+descarga entrega el nuevo HTML con el audio embebido. Reiniciar el server y pulsar regenerar → aviso
+404 manejado.
+
+---
+
+## Fase R5 — (Opcional / futuro) Persistencia y portabilidad del `Slides` JSON
+
+**Objetivo:** durabilidad entre reinicios y poder guardar el caro output de Claude.
+
+Idea (no imprescindible para el MVP): botón "Descargar JSON" (el `Slides`) y un modo de `/api/audio`
+que acepte el JSON subido en vez de un `deckId`. **Pega:** re-renderizar necesita también las
+imágenes; el modo "solo JSON" perdería las imágenes salvo que se re-suban. Por eso el `deckId` en
+memoria (R0–R4) cubre el caso principal; esta fase queda como mejora si se necesita persistencia.
+
+---
+
+## Fase R6 — E2E y criterio de "hecho"
+
+**E2E (reservar para el final por la cuota free tier):**
+1. Generar un deck con el guion corto **sin** voz → confirmar `X-Deck-Id` y deck sin audio.
+2. En el panel de audio, regenerar con voz A → suena; con voz B → suena distinta.
+3. Confirmar en logs que **R2/R4 no llaman a Claude** (solo ElevenLabs).
+4. Descargar el HTML regenerado y abrirlo **sin servidor** (file://) → sigue sonando (audio
+   embebido), igual que en V8.
+
+**Criterio de "hecho":**
+- Cambiar de voz / añadir voz / reintentar TTS **no** dispara ninguna llamada a Claude.
+- Un deck generado **sin** voz puede recibir audio después desde el panel.
+- El deck regenerado sigue siendo **un solo `.html`** que funciona offline.
+- Cache miss (server reiniciado / expirado) se maneja con un aviso claro, sin romper la UI.
+- El comportamiento de `/api/generate` no cambia para quien no use el panel nuevo.
+
+## Archivos tocados
+
+```
+src/services/deck-store.ts   # NUEVO: Map en memoria { slides, themeName, images } + tope/TTL
+src/routes/generate.ts       # CAMBIA: putDeck + X-Deck-Id en /api/generate; +POST /api/audio; +GET /api/voices
+public/index.html            # CAMBIA: panel "Audio" en #result-area (selector de voz + botón)
+public/app.js                # CAMBIA: captura X-Deck-Id; carga /api/voices; handler de regenerar
+.env.example                 # CAMBIA (opcional): ELEVENLABS_VOICES
+# services/tts.ts y services/slides.ts NO cambian: se reutilizan tal cual.
+```
+
+## Riesgos y consideraciones
+
+- **Memoria del store:** las imágenes embebidas (data URIs) son lo pesado; por eso `MAX_DECKS`
+  pequeño + TTL. Es un tool local monousuario: aceptable.
+- **Cache miss tras reinicio:** esperado; la UI lo trata como "vuelve a generar". No persistimos a
+  disco en el MVP (ver R5).
+- **Cuota ElevenLabs:** regenerar **sigue** gastando free tier (TTS por carácter). El ahorro es de
+  Claude/tiempo, no de cuota de voz. Iterar voces con el guion **corto**.
+- **Orden de fases sin gastar cuota:** R0, R1, R3 y el plumbing de R2/R4 se verifican sin tocar
+  ElevenLabs (cabecera, 404, parseo, store). Solo R2/R4/R6 "de verdad" consumen cuota → dejar para
+  el final y con deck corto.

@@ -9,6 +9,7 @@ let generatedHtml = null
 let blobUrl = null
 let voiceEnabled = false
 let subtitlesEnabled = true
+let currentDeckId = null
 
 const $ = (id) => document.getElementById(id)
 
@@ -20,9 +21,32 @@ const statusEl = $('status')
 const resultArea = $('result-area')
 const preview = $('preview')
 const downloadBtn = $('download-btn')
-const chkVoice = $('chk-voice')
-const chkSubs  = $('chk-subs')
-const subsRow  = $('subs-row')
+const chkVoice       = $('chk-voice')
+const chkSubs        = $('chk-subs')
+const voiceConfig    = $('voice-config')
+const genVoiceSelect = $('gen-voice-select')
+const modelSelect    = $('model-select')
+const audioPanel     = $('audio-panel')
+const regenVoiceSelect = $('regen-voice-select')
+const regenAudioBtn  = $('regen-audio-btn')
+const regenSubs      = $('regen-subs')
+const audioStatus    = $('audio-status')
+
+// --- Cargar voces disponibles ---
+async function loadVoices() {
+  try {
+    const res = await fetch('/api/voices')
+    if (!res.ok) return
+    const { configured, voices } = await res.json()
+    if (!voices.length) return
+    const opts = voices.map((v) => `<option value="${escAttr(v.id)}">${escHtml(v.label)}</option>`).join('')
+    genVoiceSelect.innerHTML = opts
+    regenVoiceSelect.innerHTML = opts
+    audioPanel._voiceConfigured = configured
+  } catch {
+    // sin voces configuradas → panel post-gen permanece oculto
+  }
+}
 
 // --- Cargar temas ---
 async function loadThemes() {
@@ -106,11 +130,10 @@ wireZone('dz-refs', 'in-refs', { multiple: true }, (files, zone) => {
   updateThemeSource()
 })
 
-// --- Checkboxes de voz ---
+// --- Checkbox de voz: expande/colapsa la config ---
 chkVoice.addEventListener('change', () => {
   voiceEnabled = chkVoice.checked
-  subsRow.classList.toggle('disabled', !voiceEnabled)
-  chkSubs.disabled = !voiceEnabled
+  voiceConfig.style.display = voiceEnabled ? 'flex' : 'none'
 })
 chkSubs.addEventListener('change', () => { subtitlesEnabled = chkSubs.checked })
 
@@ -141,7 +164,11 @@ generateBtn.addEventListener('click', async () => {
   imageFiles.forEach((f) => form.append('images', f))
   if (avatarFile) form.append('avatar', avatarFile)
   refFiles.forEach((f) => form.append('references', f))
-  if (voiceEnabled) form.append('voice', 'on')
+  if (voiceEnabled) {
+    form.append('voice', 'on')
+    if (genVoiceSelect.value) form.append('voiceId', genVoiceSelect.value)
+    if (modelSelect.value) form.append('modelId', modelSelect.value)
+  }
   form.append('subtitles', subtitlesEnabled ? 'on' : 'off')
 
   try {
@@ -151,7 +178,9 @@ generateBtn.addEventListener('click', async () => {
       throw new Error(body.error || `HTTP ${res.status}`)
     }
     generatedHtml = await res.text()
+    currentDeckId = res.headers.get('X-Deck-Id')
     showResult(generatedHtml)
+    showAudioPanel()
     const voiceWarning = res.headers.get('X-Voice-Warning')
     if (voiceWarning) showStatus('warning', '⚠️ ' + voiceWarning)
     else clearStatus()
@@ -193,10 +222,81 @@ function hideResult() {
   resultArea.style.display = 'none'
   preview.src = 'about:blank'
   generatedHtml = null
+  currentDeckId = null
+  audioPanel.style.display = 'none'
+  clearAudioStatus()
   if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null }
 }
 
 function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 function escAttr(s) { return escHtml(s).replace(/"/g, '&quot;') }
 
+// --- Panel de audio ---
+function showAudioPanel() {
+  if (!currentDeckId || !audioPanel._voiceConfigured) return
+  audioPanel.style.display = 'flex'
+  clearAudioStatus()
+}
+
+function clearAudioStatus() {
+  audioStatus.style.display = 'none'
+  audioStatus.textContent = ''
+  audioStatus.className = ''
+}
+
+function showAudioStatus(type, msg) {
+  audioStatus.className = type
+  if (type === 'loading') {
+    audioStatus.innerHTML = `<span class="spinner"></span><span></span>`
+    audioStatus.lastChild.textContent = msg
+  } else {
+    audioStatus.textContent = msg
+  }
+  audioStatus.style.display = type === 'loading' ? 'flex' : 'block'
+}
+
+regenAudioBtn.addEventListener('click', async () => {
+  if (!currentDeckId) return
+  regenAudioBtn.disabled = true
+  showAudioStatus('loading', 'Sintetizando audio con ElevenLabs…')
+
+  try {
+    const res = await fetch('/api/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deckId: currentDeckId,
+        voiceId: regenVoiceSelect.value || undefined,
+        modelId: modelSelect.value || undefined,
+        subtitles: regenSubs.checked,
+      }),
+    })
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      if (res.status === 404) {
+        audioPanel.style.display = 'none'
+        currentDeckId = null
+        showAudioStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
+        return
+      }
+      throw new Error(body.error || `HTTP ${res.status}`)
+    }
+
+    const newHtml = await res.text()
+    currentDeckId = res.headers.get('X-Deck-Id') || currentDeckId
+    generatedHtml = newHtml
+    showResult(newHtml)
+
+    const warning = res.headers.get('X-Voice-Warning')
+    if (warning) showAudioStatus('warning', '⚠️ ' + warning)
+    else clearAudioStatus()
+  } catch (err) {
+    showAudioStatus('error', err instanceof Error ? err.message : String(err))
+  } finally {
+    regenAudioBtn.disabled = false
+  }
+})
+
 loadThemes()
+loadVoices()

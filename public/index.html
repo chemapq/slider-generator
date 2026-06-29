@@ -105,7 +105,7 @@
       padding: 0.6rem 0.85rem; font-size: 0.88rem; color: #c0bcff; font-weight: 500;
     }
 
-    /* Checkboxes de voz */
+    /* Voz — panel principal */
     .voice-opts {
       display: flex; flex-direction: column; gap: 0.5rem;
       background: var(--panel); border: 1px solid var(--border);
@@ -121,12 +121,53 @@
     }
     .toggle-label { font-size: 0.9rem; font-weight: 500; color: var(--text); }
     .toggle-hint  { font-size: 0.74rem; color: var(--muted); margin-left: 0.25rem; }
-    .toggle-row.disabled .toggle-label,
-    .toggle-row.disabled .toggle-hint { opacity: 0.38; }
-    .toggle-row.disabled { cursor: default; pointer-events: none; }
+
+    /* Config expandible (voz, modelo, subs) — visible solo cuando voice está marcado */
+    #voice-config {
+      display: none; flex-direction: column; gap: 0.6rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid var(--border-soft);
+    }
+    .voice-config-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    .voice-config-row .field { flex: 1; min-width: 160px; }
+
+    /* Selector de voz reutilizable */
+    .voice-sel {
+      width: 100%; background: #1a1a22; color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.55rem 0.85rem; font-size: 0.88rem; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238e8e9e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 0.75rem center; padding-right: 2rem;
+    }
+    .voice-sel:focus { outline: none; border-color: var(--brand); }
 
     /* Aviso de voz no disponible */
     #status.warning { display: block; background: #2a2218; color: #ffa940; border: 1px solid #3a3020; }
+
+    /* Panel post-generación: regenerar audio */
+    #audio-panel {
+      display: none; flex-direction: column; gap: 0.6rem;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.25rem;
+    }
+    #audio-panel .panel-title {
+      font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    #audio-panel .panel-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    #audio-panel .voice-sel { flex: 1; min-width: 160px; width: auto; }
+    button#regen-audio-btn {
+      background: #1a2e2a; color: #5dd8b0; border: 1px solid #253e36;
+      border-radius: 8px; padding: 0.55rem 1.2rem;
+      font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
+      white-space: nowrap;
+    }
+    button#regen-audio-btn:hover:not(:disabled) { background: #203830; }
+    button#regen-audio-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #audio-status { font-size: 0.8rem; display: none; }
+    #audio-status.loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
+    #audio-status.error   { display: block; color: #ff7a7a; }
+    #audio-status.warning { display: block; color: #ffa940; }
 
     button#generate-btn {
       background: var(--brand); color: #fff; border: none; border-radius: 8px;
@@ -218,11 +259,30 @@
           <span class="toggle-label">Añadir narración por voz</span>
           <span class="toggle-hint">· free tier: cuota limitada (~10k chars/mes)</span>
         </label>
-        <label class="toggle-row disabled" id="subs-row">
-          <input type="checkbox" id="chk-subs" checked disabled>
-          <span class="toggle-label">Subtítulos</span>
-          <span class="toggle-hint">· activados al abrir el deck</span>
-        </label>
+
+        <!-- Configuración expandible (visible al marcar voz) -->
+        <div id="voice-config">
+          <div class="voice-config-row">
+            <div class="field">
+              <label class="lbl" for="gen-voice-select">Voz</label>
+              <select id="gen-voice-select" class="voice-sel">
+                <option value="">Cargando…</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="lbl" for="model-select">Modelo</label>
+              <select id="model-select" class="voice-sel">
+                <option value="eleven_multilingual_v2">Multilingual v2 · calidad</option>
+                <option value="eleven_turbo_v2_5">Turbo v2.5 · más rápido</option>
+              </select>
+            </div>
+          </div>
+          <label class="toggle-row">
+            <input type="checkbox" id="chk-subs" checked>
+            <span class="toggle-label">Subtítulos</span>
+            <span class="toggle-hint">· activados al abrir el deck</span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -250,6 +310,22 @@
         <button id="download-btn">Descargar HTML</button>
       </div>
       <iframe id="preview" title="Vista previa de la presentación"></iframe>
+
+      <!-- Panel: regenerar audio sin re-llamar a Claude -->
+      <div id="audio-panel">
+        <p class="panel-title">Regenerar audio <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#5a5a68">— cambia la voz sin volver a generar con Claude</span></p>
+        <div class="panel-row">
+          <select id="regen-voice-select" class="voice-sel">
+            <option value="">Voz por defecto</option>
+          </select>
+          <label class="toggle-row" style="flex-shrink:0">
+            <input type="checkbox" id="regen-subs" checked>
+            <span class="toggle-label" style="font-size:0.85rem">Subtítulos</span>
+          </label>
+          <button id="regen-audio-btn">Regenerar audio</button>
+        </div>
+        <div id="audio-status"></div>
+      </div>
     </div>
   </main>
 

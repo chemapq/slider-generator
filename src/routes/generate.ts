@@ -10,6 +10,7 @@ import {
 } from '../services/images.js'
 import type { ReferenceImageBlock } from '../services/references.js'
 import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
+import { putDeck, getDeck } from '../services/deck-store.js'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
@@ -71,6 +72,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     let voiceEnabled = false
     let subtitlesEnabled = true
     let voiceIdOverride: string | undefined
+    let modelIdOverride: string | undefined
 
     try {
       for await (const part of req.parts()) {
@@ -100,6 +102,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           else if (part.fieldname === 'voice') voiceEnabled = part.value === 'on'
           else if (part.fieldname === 'subtitles') subtitlesEnabled = part.value !== 'off'
           else if (part.fieldname === 'voiceId' && part.value) voiceIdOverride = part.value
+          else if (part.fieldname === 'modelId' && part.value) modelIdOverride = part.value
         }
       }
     } catch (err: unknown) {
@@ -156,10 +159,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       if (voiceEnabled && process.env.ELEVENLABS_API_KEY) {
         try {
           const narrations = slides.slides.map((s) => s.narration)
-          audio = await synthesizeDeck(
-            narrations,
-            voiceIdOverride ? { voiceId: voiceIdOverride } : {},
-          )
+          audio = await synthesizeDeck(narrations, {
+            ...(voiceIdOverride && { voiceId: voiceIdOverride }),
+            ...(modelIdOverride && { modelId: modelIdOverride }),
+          })
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           console.warn('[tts] fallo general del servicio de voz:', msg)
@@ -169,6 +172,9 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           )
         }
       }
+
+      const deckId = putDeck({ slides, themeName, images: deckImages })
+      reply.header('X-Deck-Id', deckId)
 
       html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled })
     } catch (err: unknown) {
@@ -185,5 +191,123 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
 
     reply.header('Content-Type', 'text/html; charset=utf-8')
     return reply.send(html)
+  })
+
+  /**
+   * Re-sintetiza el audio de un deck ya generado sin volver a llamar a Claude.
+   *
+   * Body JSON: { deckId: string, voiceId?: string, subtitles?: boolean }
+   * Response:  text/html (el deck con el nuevo audio embebido)
+   * Headers:   X-Deck-Id (mismo id, reutilizable), X-Voice-Warning (si hubo degradación)
+   *
+   * Errores:
+   *   404  → deckId no encontrado (server reiniciado / expirado / id inválido)
+   *   409  → ELEVENLABS_API_KEY no configurada
+   *   502  → TTS falló por completo tras reintentos (la UI conserva el deck anterior)
+   */
+  app.post('/api/audio', async (req, reply) => {
+    const body = req.body as { deckId?: string; voiceId?: string; modelId?: string; subtitles?: boolean }
+    const { deckId, voiceId, modelId, subtitles } = body ?? {}
+
+    if (!deckId || typeof deckId !== 'string') {
+      return reply.status(400).send({ error: 'Falta deckId.' })
+    }
+
+    const ctx = getDeck(deckId)
+    if (!ctx) {
+      return reply.status(404).send({
+        error: 'El deck ya no está disponible en el servidor. Vuelve a generarlo.',
+      })
+    }
+
+    if (!process.env.ELEVENLABS_API_KEY) {
+      return reply.status(409).send({ error: 'El servicio de voz no está configurado.' })
+    }
+
+    const narrations = ctx.slides.slides.map((s) => s.narration)
+    const allEmpty = narrations.every((n) => !n?.trim())
+    if (allEmpty) {
+      reply.header('X-Voice-Warning', 'El deck no tiene narración que locutar.')
+      reply.header('X-Deck-Id', deckId)
+      const theme = await loadTheme(ctx.themeName).catch(async () => {
+        const all = await listThemes()
+        if (!all.length) throw new Error('No hay temas disponibles en themes/.')
+        return all[0]!
+      })
+      const html = renderSlides(ctx.slides, theme, ctx.images, undefined, {
+        subtitles: subtitles !== false,
+      })
+      reply.header('Content-Type', 'text/html; charset=utf-8')
+      return reply.send(html)
+    }
+
+    let audio: DeckAudio
+    try {
+      audio = await synthesizeDeck(narrations, {
+        ...(voiceId && { voiceId }),
+        ...(modelId && { modelId }),
+      })
+    } catch (err) {
+      if (isTransientApiError(err)) {
+        return reply.status(503).send({
+          error: 'Servicio de voz saturado. Espera unos segundos y vuelve a intentarlo.',
+        })
+      }
+      const msg = err instanceof Error ? err.message : String(err)
+      return reply.status(502).send({ error: `Error sintetizando audio: ${msg}` })
+    }
+
+    const theme = await loadTheme(ctx.themeName).catch(async () => {
+      const all = await listThemes()
+      if (!all.length) throw new Error('No hay temas disponibles en themes/.')
+      return all[0]!
+    })
+
+    const html = renderSlides(ctx.slides, theme, ctx.images, audio, {
+      subtitles: subtitles !== false,
+    })
+
+    const allMute = audio.every((a) => a === null)
+    if (allMute) {
+      reply.header(
+        'X-Voice-Warning',
+        'Ninguna slide pudo sintetizarse. El deck se generó sin audio.',
+      )
+    }
+
+    reply.header('X-Deck-Id', deckId)
+    reply.header('Content-Type', 'text/html; charset=utf-8')
+    return reply.send(html)
+  })
+
+  /**
+   * Lista las voces disponibles para el selector de la UI.
+   * Lee ELEVENLABS_VOICES (JSON array de {id, label}) del entorno.
+   * Si no está definida pero sí ELEVENLABS_VOICE_ID, devuelve esa como "Voz por defecto".
+   */
+  app.get('/api/voices', async (_req, reply) => {
+    const configured = Boolean(process.env.ELEVENLABS_API_KEY)
+    let voices: { id: string; label: string }[] = []
+
+    const raw = process.env.ELEVENLABS_VOICES
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown
+        if (Array.isArray(parsed)) {
+          voices = parsed.filter(
+            (v): v is { id: string; label: string } =>
+              typeof v === 'object' && v !== null && typeof v.id === 'string' && typeof v.label === 'string',
+          )
+        }
+      } catch {
+        // ELEVENLABS_VOICES malformado: devolvemos array vacío (no rompemos)
+      }
+    }
+
+    if (!voices.length && process.env.ELEVENLABS_VOICE_ID) {
+      voices = [{ id: process.env.ELEVENLABS_VOICE_ID, label: 'Voz por defecto' }]
+    }
+
+    return reply.send({ configured, voices })
   })
 }
