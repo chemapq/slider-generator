@@ -200,6 +200,23 @@
     }
     button#download-btn:hover { background: #243424; }
     iframe#preview { width: 100%; aspect-ratio: 16 / 9; border: none; border-radius: 10px; background: #000; }
+
+    /* Editor visual: toggle + guardar + indicador */
+    .result-actions { display: flex; align-items: center; gap: 0.6rem; }
+    button#edit-toggle-btn {
+      background: #1a1a2e; color: #c0bcff; border: 1px solid #2e2c52; border-radius: 7px;
+      padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
+    }
+    button#edit-toggle-btn:hover { background: #22224a; }
+    button#edit-toggle-btn.active { background: #2e2c52; color: #fff; }
+    button#save-btn {
+      background: #1e2233; color: #8fb4ff; border: 1px solid #2a3350; border-radius: 7px;
+      padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
+    }
+    button#save-btn:hover { background: #262c47; }
+    #edit-indicator {
+      font-size: 0.78rem; text-transform: none; letter-spacing: normal; color: var(--muted); font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -307,7 +324,12 @@
     <div id="result-area">
       <div class="result-header">
         <span>Vista previa</span>
-        <button id="download-btn">Descargar HTML</button>
+        <div class="result-actions">
+          <span id="edit-indicator" aria-live="polite"></span>
+          <button id="save-btn" type="button" style="display:none">Guardar</button>
+          <button id="edit-toggle-btn" type="button">✎ Editar</button>
+          <button id="download-btn">Descargar HTML</button>
+        </div>
       </div>
       <iframe id="preview" title="Vista previa de la presentación"></iframe>
 
@@ -329,6 +351,7 @@
     </div>
   </main>
 
+  <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

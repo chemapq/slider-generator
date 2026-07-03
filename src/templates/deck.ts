@@ -44,6 +44,9 @@ body {
   position: relative;
   width: 1280px;
   height: 720px;
+  /* El body es flex: sin esto el stage (1280px) se encoge al ancho del contenedor
+     cuando se ve en un iframe estrecho (preview), rompiendo el escalado de fit(). */
+  flex: none;
   transform-origin: center center;
 }
 .slide {
@@ -398,6 +401,13 @@ const DECK_JS = `
     if (btnCC)   btnCC.addEventListener('click',   toggleCC);
     if (btnAuto) btnAuto.addEventListener('click', toggleAuto);
   }
+
+  // Hook para el editor externo (no afecta al comportamiento normal del deck).
+  window.__deckAudioPause = function () {
+    audioOn = false;
+    if (prevAudio) prevAudio.pause();
+    if (typeof syncBtns === 'function') syncBtns();
+  };
 
   render();
 }());

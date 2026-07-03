@@ -10,7 +10,7 @@ import {
 } from '../services/images.js'
 import type { ReferenceImageBlock } from '../services/references.js'
 import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
-import { putDeck, getDeck } from '../services/deck-store.js'
+import { putDeck, getDeck, updateDeckSlides } from '../services/deck-store.js'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
@@ -191,6 +191,40 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
 
     reply.header('Content-Type', 'text/html; charset=utf-8')
     return reply.send(html)
+  })
+
+  /**
+   * Actualiza el HTML de las slides de un deck ya generado (editor visual).
+   * No toca slideClass, notes ni narration. No re-llama a Claude ni a TTS.
+   *
+   * Params: id (deckId)
+   * Body JSON: { slides: string[] } — innerHTML limpio de cada slide, en orden.
+   * Respuestas: 200 { ok, count } | 400 body inválido o longitud no coincide | 404 deck no encontrado
+   */
+  app.put('/api/deck/:id/slides', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as { slides?: unknown }
+    const slides = body?.slides
+
+    if (!Array.isArray(slides) || !slides.every((s) => typeof s === 'string')) {
+      return reply.status(400).send({ error: 'Body inválido: se espera { slides: string[] }.' })
+    }
+
+    const ctx = getDeck(id)
+    if (!ctx) {
+      return reply
+        .status(404)
+        .send({ error: 'El deck ya no está disponible en el servidor. Vuelve a generarlo.' })
+    }
+
+    if (slides.length !== ctx.slides.slides.length) {
+      return reply.status(400).send({
+        error: `Nº de slides no coincide (recibidas ${slides.length}, esperadas ${ctx.slides.slides.length}).`,
+      })
+    }
+
+    updateDeckSlides(id, slides as string[])
+    return reply.send({ ok: true, count: slides.length })
   })
 
   /**

@@ -45,3 +45,16 @@ export function getDeck(id: string): DeckContext | undefined {
   }
   return ctx
 }
+
+/**
+ * Sobrescribe el html de cada slide del deck (p.ej. tras editar en el editor visual).
+ * No toca slideClass, notes ni narration. Respeta TTL vía getDeck.
+ */
+export function updateDeckSlides(id: string, htmls: string[]): boolean {
+  const ctx = getDeck(id)
+  if (!ctx) return false
+  ctx.slides.slides.forEach((s, i) => {
+    if (typeof htmls[i] === 'string') s.html = htmls[i]
+  })
+  return true
+}

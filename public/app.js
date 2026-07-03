@@ -10,6 +10,7 @@ let blobUrl = null
 let voiceEnabled = false
 let subtitlesEnabled = true
 let currentDeckId = null
+let editing = false
 
 const $ = (id) => document.getElementById(id)
 
@@ -31,6 +32,9 @@ const regenVoiceSelect = $('regen-voice-select')
 const regenAudioBtn  = $('regen-audio-btn')
 const regenSubs      = $('regen-subs')
 const audioStatus    = $('audio-status')
+const editToggleBtn  = $('edit-toggle-btn')
+const saveBtn        = $('save-btn')
+const editIndicator  = $('edit-indicator')
 
 // --- Cargar voces disponibles ---
 async function loadVoices() {
@@ -192,15 +196,86 @@ generateBtn.addEventListener('click', async () => {
 })
 
 // --- Descargar ---
+// Serializa el iframe en vivo (WYSIWYG: incluye ediciones + audio embebido).
+// Si el editor no está disponible o el iframe no es accesible, cae al último HTML recibido.
 downloadBtn.addEventListener('click', () => {
-  if (!generatedHtml) return
+  let html = null
+  try {
+    if (window.DeckEditor && preview.contentDocument) html = window.DeckEditor.serializeCleanHtml(preview)
+  } catch {
+    html = null
+  }
+  if (!html) html = generatedHtml
+  if (!html) return
   const a = document.createElement('a')
-  const url = URL.createObjectURL(new Blob([generatedHtml], { type: 'text/html' }))
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
   a.href = url
   a.download = 'presentacion.html'
   a.click()
   URL.revokeObjectURL(url)
 })
+
+// --- Editor visual: toggle Presentar/Editar + Guardar ---
+editToggleBtn.addEventListener('click', async () => {
+  if (!editing) {
+    window.DeckEditor.enter(preview)
+    editing = true
+    editToggleBtn.textContent = '▶ Presentar'
+    editToggleBtn.classList.add('active')
+    saveBtn.style.display = 'inline-block'
+  } else {
+    await saveAndExitEditing()
+    editToggleBtn.textContent = '✎ Editar'
+    editToggleBtn.classList.remove('active')
+    saveBtn.style.display = 'none'
+  }
+})
+
+saveBtn.addEventListener('click', () => { syncSlides() })
+
+// Guarda las ediciones pendientes y sale de modo edición sobre el documento ACTUAL
+// del iframe (debe llamarse antes de que preview.src cambie, p. ej. al regenerar
+// audio: si no, el editor queda con listeners colgando de un documento ya navegado
+// y las ediciones sin guardar se pierden).
+async function saveAndExitEditing() {
+  if (!editing) return
+  await syncSlides()
+  window.DeckEditor.exit(preview)
+  editing = false
+}
+
+async function syncSlides() {
+  if (!currentDeckId) return
+  const slides = window.DeckEditor.extractSlides(preview)
+  setEditIndicator('Guardando…')
+  try {
+    const res = await fetch(`/api/deck/${currentDeckId}/slides`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slides }),
+    })
+    if (res.status === 404) {
+      setEditIndicator('El deck expiró; vuelve a generarlo')
+      return
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      throw new Error(body.error || `HTTP ${res.status}`)
+    }
+    setEditIndicator('Guardado ✓')
+  } catch (err) {
+    setEditIndicator('Error al guardar')
+  }
+}
+
+function setEditIndicator(msg) { editIndicator.textContent = msg }
+function resetEditUi() {
+  editing = false
+  editToggleBtn.textContent = '✎ Editar'
+  editToggleBtn.classList.remove('active')
+  saveBtn.style.display = 'none'
+  setEditIndicator('')
+}
 
 // --- Helpers ---
 function showStatus(type, msg) {
@@ -217,8 +292,11 @@ function showResult(html) {
   blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
   preview.src = blobUrl
   resultArea.style.display = 'flex'
+  resetEditUi()
 }
 function hideResult() {
+  if (editing && window.DeckEditor) window.DeckEditor.exit(preview)
+  resetEditUi()
   resultArea.style.display = 'none'
   preview.src = 'about:blank'
   generatedHtml = null
@@ -257,6 +335,9 @@ function showAudioStatus(type, msg) {
 
 regenAudioBtn.addEventListener('click', async () => {
   if (!currentDeckId) return
+  // Si se está editando, guardar y salir ANTES de regenerar: /api/audio lee las
+  // slides del store, y el iframe está a punto de navegar a un documento nuevo.
+  await saveAndExitEditing()
   regenAudioBtn.disabled = true
   showAudioStatus('loading', 'Sintetizando audio con ElevenLabs…')
 
