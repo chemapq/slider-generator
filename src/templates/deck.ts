@@ -6,7 +6,9 @@
  *
  * Motor de audio (V5): lee window.__DECK_AUDIO__ y window.__DECK_OPTS__ inyectados
  * por el renderer (V6). Si no están presentes el deck se comporta exactamente igual
- * que antes (sin audio, sin controles).
+ * que antes (sin audio, sin controles). Incluye un anillo de cuenta atrás
+ * (#audio-timer, esquina inferior derecha) con el tiempo restante del audio del
+ * slide activo; se oculta en slides sin audio.
  */
 
 export interface DeckParts {
@@ -168,6 +170,53 @@ body {
 }
 #captions.show { opacity: 1; }
 
+/* Temporizador de audio: anillo con cuenta atrás (fixed esquina inferior derecha).
+   Oculto por defecto; el JS lo muestra solo cuando el slide activo tiene audio. */
+#audio-timer {
+  display: none;
+  position: fixed;
+  bottom: 22px;
+  right: 26px;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 7, 14, .55);
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  backdrop-filter: blur(14px);
+  z-index: 50;
+  pointer-events: none;
+}
+#audio-timer svg {
+  position: absolute;
+  inset: 0;
+  width: 52px;
+  height: 52px;
+  transform: rotate(-90deg);
+}
+#audio-timer .track {
+  fill: none;
+  stroke: rgba(255, 255, 255, .22);
+  stroke-width: 3;
+}
+#audio-timer .arc {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 144.5;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset .3s linear;
+}
+#audio-timer-time {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
+
 /* Hint teclado (fixed esquina inferior derecha) */
 .hint {
   position: fixed;
@@ -274,6 +323,29 @@ const DECK_JS = `
   var btnCC      = document.getElementById('btn-cc');
   var btnAuto    = document.getElementById('btn-auto');
 
+  // Temporizador de audio: anillo + cuenta atrás del slide activo.
+  var timerEl   = document.getElementById('audio-timer');
+  var timerArc  = timerEl ? timerEl.querySelector('.arc') : null;
+  var timerTime = document.getElementById('audio-timer-time');
+  var TIMER_C   = 144.5; // circunferencia del anillo (2π·23); debe coincidir con stroke-dasharray
+
+  function fmtTime(s) {
+    s = Math.max(0, Math.ceil(s));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function setTimer(remaining, duration) {
+    if (timerTime) timerTime.textContent = fmtTime(remaining);
+    if (timerArc) {
+      var frac = duration > 0 ? Math.max(0, Math.min(1, remaining / duration)) : 0;
+      timerArc.style.strokeDashoffset = String(TIMER_C * (1 - frac));
+    }
+  }
+
+  function showTimer(on) {
+    if (timerEl) timerEl.style.display = on ? 'flex' : 'none';
+  }
+
   // Iconos SVG para el botón play/pausa (se intercambian según estado).
   var SVG_PLAY  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><polygon points="5,3 19,12 5,21"/></svg>';
   var SVG_PAUSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="20"/><line x1="14" y1="4" x2="14" y2="20"/></svg>';
@@ -309,16 +381,29 @@ const DECK_JS = `
       prevAudio.currentTime = 0;
       prevAudio.ontimeupdate = null;
       prevAudio.onended = null;
+      prevAudio.onloadedmetadata = null;
     }
     prevAudio = audio;
     hideCaption();
 
-    if (!audio) return;
+    if (!audio) { showTimer(false); return; }
+
+    // Temporizador: anillo lleno con la duración total en cuanto haya metadata
+    // (con data: URIs base64 llega en milisegundos).
+    showTimer(true);
+    var refreshTimer = function () {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setTimer(audio.duration - audio.currentTime, audio.duration);
+      }
+    };
+    audio.onloadedmetadata = refreshTimer;
+    refreshTimer();
 
     // Capturar el índice actual para los handlers asíncronos.
     var snapCur = cur;
 
     audio.ontimeupdate = function () {
+      refreshTimer();
       var data = deckAudioData[snapCur];
       if (!data) return;
       var t    = audio.currentTime;
@@ -336,6 +421,7 @@ const DECK_JS = `
 
     audio.onended = function () {
       hideCaption();
+      setTimer(0, audio.duration);
       if (autoAdv) {
         if (cur < total - 1) { next(); }
         else { autoAdv = false; syncBtns(); }
@@ -394,7 +480,8 @@ const DECK_JS = `
     if (audioCtrl)  { audioCtrl.style.display = 'flex'; }
     if (captionsEl) { captionsEl.style.display = 'block'; }
     var hintEl = document.querySelector('.hint');
-    if (hintEl) hintEl.textContent = '← / → · espacio · p m c';
+    // Correr el hint a la izquierda: el anillo del temporizador ocupa su esquina.
+    if (hintEl) { hintEl.textContent = '← / → · espacio · p m c'; hintEl.style.right = '96px'; }
     syncBtns();
     if (btnPlay) btnPlay.addEventListener('click', togglePlay);
     if (btnMute) btnMute.addEventListener('click', toggleMute);
@@ -437,6 +524,10 @@ ${css}
 ${slides}
 </div>
 <div id="captions"></div>
+<div id="audio-timer">
+  <svg viewBox="0 0 52 52"><circle class="track" cx="26" cy="26" r="23"/><circle class="arc" cx="26" cy="26" r="23"/></svg>
+  <span id="audio-timer-time"></span>
+</div>
 <div id="nav">
   <div id="audio-controls">
     <button id="btn-play" aria-label="Play/pausa">${SVG_PLAY_STATIC}</button>
