@@ -11,6 +11,7 @@ let voiceEnabled = false
 let subtitlesEnabled = true
 let currentDeckId = null
 let editing = false
+let unsplashConfigured = false
 
 const $ = (id) => document.getElementById(id)
 
@@ -49,6 +50,18 @@ async function loadVoices() {
     audioPanel._voiceConfigured = configured
   } catch {
     // sin voces configuradas → panel post-gen permanece oculto
+  }
+}
+
+// --- Estado de Unsplash (habilita regenerar/buscar fotos en el editor) ---
+async function loadUnsplashStatus() {
+  try {
+    const res = await fetch('/api/unsplash')
+    if (!res.ok) return
+    const { configured } = await res.json()
+    unsplashConfigured = Boolean(configured)
+  } catch {
+    // sin Unsplash → el popover de imagen solo ofrece archivo local / quitar
   }
 }
 
@@ -185,8 +198,8 @@ generateBtn.addEventListener('click', async () => {
     currentDeckId = res.headers.get('X-Deck-Id')
     showResult(generatedHtml)
     showAudioPanel()
-    const voiceWarning = res.headers.get('X-Voice-Warning')
-    if (voiceWarning) showStatus('warning', '⚠️ ' + voiceWarning)
+    const warning = res.headers.get('X-Voice-Warning') || res.headers.get('X-Image-Warning')
+    if (warning) showStatus('warning', '⚠️ ' + warning)
     else clearStatus()
   } catch (err) {
     showStatus('error', err instanceof Error ? err.message : String(err))
@@ -218,7 +231,7 @@ downloadBtn.addEventListener('click', () => {
 // --- Editor visual: toggle Presentar/Editar + Guardar ---
 editToggleBtn.addEventListener('click', async () => {
   if (!editing) {
-    window.DeckEditor.enter(preview)
+    window.DeckEditor.enter(preview, { unsplash: unsplashConfigured })
     editing = true
     editToggleBtn.textContent = '▶ Presentar'
     editToggleBtn.classList.add('active')
@@ -381,3 +394,4 @@ regenAudioBtn.addEventListener('click', async () => {
 
 loadThemes()
 loadVoices()
+loadUnsplashStatus()

@@ -25,12 +25,15 @@ export interface GenerateOptions {
   imageManifest?: ImageManifestEntry[]
   hasAvatar?: boolean
   referenceImages?: ReferenceImageBlock[]
+  /** Sin imágenes subidas: permite slots data-img-query resueltos vía Unsplash. */
+  unsplashEnabled?: boolean
 }
 
 function buildImageRules(
   manifest: ImageManifestEntry[],
   hasAvatar: boolean,
   freeMode: boolean,
+  unsplashEnabled: boolean,
 ): string {
   const lines: string[] = []
 
@@ -53,6 +56,32 @@ function buildImageRules(
         '  Deja slides sin imagen cuando no encaje (usa solo texto/tarjetas).',
       )
     }
+  } else if (unsplashEnabled) {
+    lines.push(
+      'No se han subido imágenes, pero hay BÚSQUEDA AUTOMÁTICA de fotos (Unsplash) disponible.',
+      'Donde una slide pida una fotografía de apoyo, inserta un slot de búsqueda:',
+      '  <img data-img-query="palabras clave en INGLÉS" data-img-orient="landscape" alt="">',
+      '  (el renderer busca la foto en Unsplash, la descarga y le inyecta el src).',
+      'Reglas de los slots:',
+      '  - data-img-query: 2 a 5 palabras en inglés con un sujeto visual CONCRETO y fotografiable',
+      '    (ej: "team meeting office", "solar panels aerial", "hands typing laptop"). Evita',
+      '    conceptos abstractos ("synergy", "innovation mindset"): no dan buenas fotos.',
+      '  - data-img-orient: "landscape" en huecos anchos, "portrait" en columnas estrechas.',
+      '  - Consulta DISTINTA en cada slot; no repitas la misma búsqueda en varias slides.',
+      '  - No pongas foto en todas las slides: solo donde aporte (portada, conceptos con imagen,',
+      '    citas, casos); ~4-8 fotos en total.',
+      '  - También puedes poner data-img-query (y data-img-orient) en un <div class="media"> para',
+      '    usar la foto como fondo.',
+    )
+    if (freeMode) {
+      lines.push('  - Maquétalos como pidan las referencias.')
+    } else {
+      lines.push('  - Usa el <img> dentro de .imgbox, sin más adornos.')
+    }
+    lines.push(
+      '  - NO añadas .ph-badge ni ningún pie/leyenda sobre la foto: son fotos reales, no placeholders.',
+      '  - NO uses data-img="ID": no hay placeholders subidos.',
+    )
   } else {
     lines.push('No hay imágenes placeholder: usa solo texto y tarjetas (sin imágenes).')
   }
@@ -166,6 +195,7 @@ function buildSystemPrompt(
   manifest: ImageManifestEntry[],
   hasAvatar: boolean,
   freeMode: boolean,
+  unsplashEnabled: boolean,
 ): string {
   const p = theme.palette
 
@@ -294,7 +324,7 @@ Usa SVGs de línea simples (\`fill="none"\`, \`stroke="currentColor"\` o color/t
 ${freeMode ? FREE_LAYOUT : STRICT_LAYOUT}
 
 ## Reglas de imágenes
-${buildImageRules(manifest, hasAvatar, freeMode)}
+${buildImageRules(manifest, hasAvatar, freeMode, unsplashEnabled)}
 
 ${freeMode ? FREE_DENSITY : STRICT_DENSITY}
 
@@ -318,7 +348,14 @@ Reglas obligatorias:
 }
 
 export async function generateSlides(opts: GenerateOptions): Promise<Slides> {
-  const { pdfBase64, theme, imageManifest = [], hasAvatar = false, referenceImages = [] } = opts
+  const {
+    pdfBase64,
+    theme,
+    imageManifest = [],
+    hasAvatar = false,
+    referenceImages = [],
+    unsplashEnabled = false,
+  } = opts
   const freeMode = referenceImages.length > 0
 
   const userContent: Anthropic.MessageParam['content'] = [
@@ -348,7 +385,7 @@ export async function generateSlides(opts: GenerateOptions): Promise<Slides> {
     system: [
       {
         type: 'text',
-        text: buildSystemPrompt(theme, imageManifest, hasAvatar, freeMode),
+        text: buildSystemPrompt(theme, imageManifest, hasAvatar, freeMode, unsplashEnabled),
         cache_control: { type: 'ephemeral' },
       },
     ],

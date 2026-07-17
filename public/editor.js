@@ -15,6 +15,7 @@
   var ED_TOOLBAR_ID = 'ed-toolbar'
   var ED_IMG_POP_ID = 'ed-imgpop'
   var ED_FILE_INPUT_ID = 'ed-file-input'
+  var ED_SEARCH_INPUT_ID = 'ed-imgsearch'
 
   // Tokens del tema usados como swatches de color rápido en la barra de formato.
   var THEME_VARS = ['--primary', '--primary-600', '--ink', '--ink-soft', '--muted', '--card']
@@ -97,6 +98,26 @@
     POP + ' button:hover { background: rgba(255,255,255,.10); color: #fff; }',
     POP + ' button.ed-danger:hover { background: rgba(255,90,90,.16); color: #ff9a9a; }',
     POP + ' button svg { width: 16px; height: 16px; flex: none; opacity: .85; }',
+    // Fila de búsqueda manual en Unsplash (se despliega bajo "Buscar en Unsplash…")
+    POP + ' .ed-search-row { display: none; gap: 6px; padding: 4px; }',
+    POP + ' .ed-search-row.is-open { display: flex; }',
+    POP + ' .ed-search-row input {',
+    '  all: unset; box-sizing: border-box; flex: 1; min-width: 170px;',
+    '  background: #101018; border: 1px solid rgba(255,255,255,.14); border-radius: 8px;',
+    '  color: #fff; font-size: 13px; font-weight: 500; padding: 7px 9px;',
+    '}',
+    POP + ' .ed-search-row input:focus { border-color: #6c63ff; }',
+    POP + ' .ed-search-row input::placeholder { color: #6a6a78; }',
+    POP + ' .ed-search-row .ed-go {',
+    '  all: unset; box-sizing: border-box; cursor: pointer; flex: none;',
+    '  background: #6c63ff; color: #fff; font-size: 13px; font-weight: 600;',
+    '  border-radius: 8px; padding: 7px 12px;',
+    '}',
+    POP + ' .ed-search-row .ed-go:hover { background: #7c74ff; }',
+    // Línea de estado del popover (búsqueda en curso / error)
+    POP + ' .ed-pop-status { display: none; color: #9a9aa8; font-size: 12px; font-weight: 500; padding: 6px 11px 4px; max-width: 250px; }',
+    POP + ' .ed-pop-status.ed-error { color: #ff9a9a; }',
+    POP + '.ed-busy button { opacity: .45; pointer-events: none; }',
   ].join('\n')
 
   // ── Iconos SVG (stroke) ─────────────────────────────────────────────────
@@ -106,6 +127,8 @@
   var SVG_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H8"/><path d="m5 11 9 9"/></svg>'
   var SVG_REPLACE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M3 15l4.5-3.5 3.5 2.5 3-2 7 5.5"/><circle cx="8.3" cy="9" r="1.4"/></svg>'
   var SVG_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 7V5h4v2M6.5 7l1 12h9l1-12"/></svg>'
+  var SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>'
+  var SVG_SEARCH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>'
 
   // ── Estado del módulo (un único iframe editado a la vez) ───────────────────
   var active = false
@@ -116,9 +139,16 @@
   var hoverOutFn = null
   var selectionChangeFn = null
   var docClickFn = null
+  var wordSelectFn = null
   var popTarget = null
   var curSelectedEl = null
   var savedRange = null
+  // Unsplash: habilitado desde enter(iframe, { unsplash }) según config del servidor.
+  var unsplashOn = false
+  // Búsqueda de foto en curso (bloquea el popover para evitar dobles peticiones).
+  var popBusy = false
+  // elemento → ids de fotos ya mostradas en él (para que "regenerar" no repita).
+  var seenPhotoIds = new WeakMap()
 
   // ── Selección: guardar/restaurar (necesario porque el <input type=color>
   //    nativo roba el foco del contenteditable y colapsa la selección) ───────
@@ -158,6 +188,14 @@
       slide.querySelectorAll('[style*="background-image"]').forEach(function (el) {
         if (!el.hasAttribute('data-ed-img')) el.setAttribute('data-ed-img', 'bg')
       })
+      // Slots de Unsplash que quedaron sin foto (solo el degradado de fallback):
+      // conservan data-img-query pero no tienen background inline. Se marcan
+      // igualmente para que el usuario pueda reintentar la búsqueda desde aquí.
+      slide.querySelectorAll('[data-img-query]').forEach(function (el) {
+        if (el.tagName !== 'IMG' && !el.hasAttribute('data-ed-img')) {
+          el.setAttribute('data-ed-img', 'bg')
+        }
+      })
     })
   }
 
@@ -185,6 +223,16 @@
   function attachKeyGuard(win, doc) {
     keyGuardFn = function (e) {
       var a = doc.activeElement
+      // Input de búsqueda del popover de imagen: se aísla TODO el teclado de la
+      // navegación del deck (aquí se escribe texto libre). Enter lanza la búsqueda.
+      if (a && a.id === ED_SEARCH_INPUT_ID) {
+        e.stopPropagation()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          runUnsplashSwap(doc, a.value)
+        }
+        return
+      }
       var navKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']
       if (a && a.isContentEditable && navKeys.indexOf(e.key) !== -1) {
         e.stopPropagation()
@@ -355,14 +403,20 @@
   }
 
   // ── Edición de imágenes ──────────────────────────────────────────────────
-  // Único punto donde se hornea la imagen en la slide. En esta iteración la fuente es
-  // un archivo local; en el futuro puede venir de un buscador de stock (mismo destino).
+  // Único punto donde se hornea la imagen en la slide (archivo local o foto de
+  // Unsplash: mismo destino).
   function applyImage(target, dataUri) {
     if (target.getAttribute('data-ed-img') === 'bg') {
       target.style.backgroundImage = "url('" + dataUri + "')"
+      // Los slots que quedaron sin foto no traen estos ajustes inline.
+      if (!target.style.backgroundSize) target.style.backgroundSize = 'cover'
+      if (!target.style.backgroundPosition) target.style.backgroundPosition = 'center'
     } else {
       target.src = dataUri
     }
+    // data-img apuntaba al placeholder anterior: sin él, fillSlots no volverá a
+    // pisar la imagen recién horneada en un futuro re-render (p. ej. /api/audio).
+    target.removeAttribute('data-img')
   }
 
   function ensureFileInput(doc) {
@@ -382,16 +436,34 @@
     var pop = doc.createElement('div')
     pop.id = ED_IMG_POP_ID
     pop.innerHTML =
+      '<button type="button" data-act="regen" data-role="regen">' + SVG_REFRESH + 'Regenerar foto</button>' +
+      '<button type="button" data-act="search" data-role="search">' + SVG_SEARCH + 'Buscar en Unsplash…</button>' +
+      '<div class="ed-search-row" data-role="searchrow">' +
+      '<input type="text" id="' + ED_SEARCH_INPUT_ID + '" placeholder="ej: team meeting office" spellcheck="false">' +
+      '<button type="button" class="ed-go" data-act="dosearch">Ir</button>' +
+      '</div>' +
       '<button type="button" data-act="replace">' + SVG_REPLACE + 'Reemplazar imagen…</button>' +
-      '<button type="button" data-act="remove" class="ed-danger">' + SVG_TRASH + 'Quitar imagen</button>'
+      '<button type="button" data-act="remove" class="ed-danger">' + SVG_TRASH + 'Quitar imagen</button>' +
+      '<div class="ed-pop-status" data-role="popstatus"></div>'
     doc.body.appendChild(pop)
     return pop
   }
 
   function openImagePopover(doc, target) {
+    if (popBusy) return // hay una búsqueda en curso: no reabrir sobre otro target
     popTarget = target
     var pop = doc.getElementById(ED_IMG_POP_ID)
     if (!pop) return
+
+    // Opciones de Unsplash según el target: "regenerar" solo tiene sentido si el
+    // slot recuerda su búsqueda (data-img-query); "buscar" vale para cualquier imagen.
+    var query = target.getAttribute('data-img-query') || ''
+    pop.querySelector('[data-role="regen"]').style.display = unsplashOn && query ? 'flex' : 'none'
+    pop.querySelector('[data-role="search"]').style.display = unsplashOn ? 'flex' : 'none'
+    pop.querySelector('[data-role="searchrow"]').classList.remove('is-open')
+    doc.getElementById(ED_SEARCH_INPUT_ID).value = query
+    setPopStatus(pop, '', false)
+
     var rect = target.getBoundingClientRect()
     pop.style.display = 'flex'
     var popRect = pop.getBoundingClientRect()
@@ -401,12 +473,98 @@
     pop.style.left = left + 'px'
   }
 
+  function setPopStatus(pop, msg, isError) {
+    var status = pop.querySelector('[data-role="popstatus"]')
+    if (!status) return
+    status.textContent = msg
+    status.className = 'ed-pop-status' + (isError ? ' ed-error' : '')
+    status.style.display = msg ? 'block' : 'none'
+  }
+
+  function orientationOf(el) {
+    var r = el.getBoundingClientRect()
+    return r.height > r.width ? 'portrait' : 'landscape'
+  }
+
+  // Busca una foto en Unsplash con `query` y la aplica sobre popTarget. Excluye
+  // las fotos ya vistas en ese elemento para que "regenerar" traiga variedad.
+  // La atribución al fotógrafo va al alt (guidelines de Unsplash).
+  function runUnsplashSwap(doc, query) {
+    query = (query || '').trim()
+    var pop = doc.getElementById(ED_IMG_POP_ID)
+    var target = popTarget
+    if (!pop || !target || popBusy) return
+
+    if (!query) {
+      pop.querySelector('[data-role="searchrow"]').classList.add('is-open')
+      doc.getElementById(ED_SEARCH_INPUT_ID).focus()
+      return
+    }
+
+    var seen = seenPhotoIds.get(target) || []
+    var currentId = target.getAttribute('data-img-id')
+    if (currentId && seen.indexOf(currentId) === -1) seen.push(currentId)
+    seenPhotoIds.set(target, seen)
+
+    popBusy = true
+    pop.classList.add('ed-busy')
+    setPopStatus(pop, 'Buscando en Unsplash…', false)
+
+    fetch('/api/unsplash/photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query, orientation: orientationOf(target), excludeIds: seen }),
+    })
+      .then(function (res) {
+        if (res.ok) return res.json()
+        return res
+          .json()
+          .catch(function () { return {} })
+          .then(function (body) { throw new Error(body.error || 'HTTP ' + res.status) })
+      })
+      .then(function (photo) {
+        applyImage(target, photo.dataUri)
+        target.setAttribute('data-img-query', query)
+        target.setAttribute('data-img-id', photo.id)
+        if (target.getAttribute('data-ed-img') !== 'bg') {
+          target.setAttribute('alt', 'Foto de ' + photo.photographer + ' en Unsplash')
+        }
+        seen.push(photo.id)
+        pop.style.display = 'none'
+        if (popTarget === target) popTarget = null
+      })
+      .catch(function (err) {
+        setPopStatus(pop, err && err.message ? err.message : 'Error buscando la foto', true)
+      })
+      .finally(function () {
+        popBusy = false
+        pop.classList.remove('ed-busy')
+      })
+  }
+
   function wireImagePopover(doc, pop) {
-    pop.addEventListener('mousedown', function (e) { e.preventDefault() })
+    // El input de búsqueda necesita el mousedown nativo para recibir el foco.
+    pop.addEventListener('mousedown', function (e) {
+      if (e.target.tagName !== 'INPUT') e.preventDefault()
+    })
     pop.addEventListener('click', function (e) {
       var btn = e.target.closest('button')
-      if (!btn || !popTarget) return
+      if (!btn || !popTarget || popBusy) return
       var act = btn.dataset.act
+      if (act === 'regen') {
+        runUnsplashSwap(doc, popTarget.getAttribute('data-img-query'))
+        return
+      }
+      if (act === 'search') {
+        var row = pop.querySelector('[data-role="searchrow"]')
+        row.classList.toggle('is-open')
+        if (row.classList.contains('is-open')) doc.getElementById(ED_SEARCH_INPUT_ID).focus()
+        return
+      }
+      if (act === 'dosearch') {
+        runUnsplashSwap(doc, doc.getElementById(ED_SEARCH_INPUT_ID).value)
+        return
+      }
       if (act === 'remove') {
         if (popTarget.getAttribute('data-ed-img') === 'bg') popTarget.style.backgroundImage = 'none'
         else popTarget.remove()
@@ -432,6 +590,40 @@
         pop.style.display = 'none'
       }
     })
+  }
+
+  // ── Click en texto: selecciona la palabra entera bajo el cursor ────────────
+  // Un click simple dentro de un editable deja el caret colapsado en mitad de la
+  // palabra; aquí se expande a la palabra completa. Los dobles/triples clicks y
+  // las selecciones por arrastre conservan su comportamiento nativo.
+  var WORD_CHAR = /[\p{L}\p{N}_]/u
+
+  function attachWordSelect(doc) {
+    wordSelectFn = function (e) {
+      if (e.detail !== 1) return
+      var block = e.target.closest && e.target.closest('[data-ed-editable]')
+      if (!block) return
+      var sel = doc.getSelection()
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return
+      var node = sel.anchorNode
+      if (!node || node.nodeType !== 3 || !block.contains(node)) return
+      var text = node.textContent
+      var start = sel.anchorOffset
+      var end = start
+      while (start > 0 && WORD_CHAR.test(text[start - 1])) start--
+      while (end < text.length && WORD_CHAR.test(text[end])) end++
+      if (start === end) return // click sobre espacio/puntuación: se deja el caret
+      var range = doc.createRange()
+      range.setStart(node, start)
+      range.setEnd(node, end)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+    doc.addEventListener('click', wordSelectFn)
+  }
+  function detachWordSelect(doc) {
+    if (wordSelectFn) doc.removeEventListener('click', wordSelectFn)
+    wordSelectFn = null
   }
 
   function attachImageClicks(doc) {
@@ -469,11 +661,14 @@
   }
 
   // ── API pública ───────────────────────────────────────────────────────────
-  function enter(iframe) {
+  // opts.unsplash: true si el servidor tiene UNSPLASH_ACCESS_KEY (el popover de
+  // imagen ofrece entonces "Regenerar foto" y "Buscar en Unsplash…").
+  function enter(iframe, opts) {
     if (active) return
     var doc = iframe.contentDocument
     if (!doc) { console.warn('[editor] no se pudo acceder al documento del iframe'); return }
 
+    unsplashOn = Boolean(opts && opts.unsplash)
     curDoc = doc
     curWin = iframe.contentWindow
 
@@ -496,6 +691,7 @@
     attachHover(doc)
     attachKeyGuard(curWin, doc)
     attachSelectionWatch(doc)
+    attachWordSelect(doc)
     attachImageClicks(doc)
 
     active = true
@@ -509,6 +705,7 @@
     detachHover(doc)
     detachKeyGuard(win)
     detachSelectionWatch(doc)
+    detachWordSelect(doc)
     detachImageClicks(doc)
 
     var bar = doc.getElementById(ED_TOOLBAR_ID)
@@ -526,6 +723,7 @@
     curDoc = null
     curWin = null
     popTarget = null
+    popBusy = false
     curSelectedEl = null
     savedRange = null
   }

@@ -9,6 +9,11 @@ import {
   type UploadedImage,
 } from '../services/images.js'
 import type { ReferenceImageBlock } from '../services/references.js'
+import {
+  isUnsplashConfigured,
+  resolveUnsplashSlots,
+  pickUnsplashPhoto,
+} from '../services/unsplash.js'
 import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
 import { putDeck, getDeck, updateDeckSlides } from '../services/deck-store.js'
 
@@ -52,7 +57,9 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    *
    * Campos del form:
    *   file        → PDF (obligatorio)
-   *   images      → imágenes placeholder (0..n)
+   *   images      → imágenes placeholder (0..n). Si no se sube ninguna y hay
+   *                 UNSPLASH_ACCESS_KEY, la IA elige fotos de Unsplash (slots
+   *                 data-img-query resueltos en servidor).
    *   avatar      → avatar-tutor (0..1)
    *   references  → imágenes de estilo (0..n). Si hay alguna, se pasan al generador
    *                 como GUÍA DE DISEÑO: Claude compone las slides parecidas a ellas
@@ -132,6 +139,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       avatar: avatarUri,
     }
 
+    // Sin imágenes subidas + Unsplash configurado → Claude marca slots
+    // data-img-query y se resuelven aquí con fotos reales.
+    const unsplashEnabled = placeholders.length === 0 && isUnsplashConfigured()
+
     // El tema aporta el contrato de tokens base (colores, tipografía, componentes).
     // Si hay imágenes de referencia, NO se deriva un tema de ellas: se pasan tal cual
     // al generador como guía de diseño (modo libre), y Claude compone parecido a ellas.
@@ -151,7 +162,36 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         // Con referencias, se reenvían al generador para que Claude imite su estilo y
         // layout (modo libre). Sin referencias, el array va vacío (modo estricto).
         referenceImages,
+        unsplashEnabled,
       })
+
+      // Resolver los slots data-img-query buscando y descargando fotos de
+      // Unsplash. Los fallos son aislados: un slot sin foto queda con el
+      // fondo degradado de fallback, nunca tumba la petición.
+      if (unsplashEnabled) {
+        try {
+          const result = await resolveUnsplashSlots(
+            slides.slides.map((s) => s.html),
+            deckImages.placeholders,
+          )
+          slides.slides.forEach((s, i) => {
+            s.html = result.htmls[i]!
+          })
+          if (result.failed > 0 && result.resolved === 0) {
+            reply.header(
+              'X-Image-Warning',
+              'No se pudieron obtener fotos de Unsplash; el deck usa fondos de relleno.',
+            )
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.warn('[unsplash] fallo general resolviendo slots:', msg)
+          reply.header(
+            'X-Image-Warning',
+            'No se pudieron obtener fotos de Unsplash; el deck usa fondos de relleno.',
+          )
+        }
+      }
 
       // TTS: solo si voice=on y hay API key. Los fallos son aislados: generamos
       // el deck sin audio en lugar de tumbar toda la petición.
@@ -225,6 +265,47 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
 
     updateDeckSlides(id, slides as string[])
     return reply.send({ ok: true, count: slides.length })
+  })
+
+  /** Estado de Unsplash: la UI decide si el editor ofrece regenerar/buscar fotos. */
+  app.get('/api/unsplash', async (_req, reply) => {
+    return reply.send({ configured: isUnsplashConfigured() })
+  })
+
+  /**
+   * Busca UNA foto en Unsplash para el editor visual (regenerar/reemplazar una
+   * imagen del deck). No toca el deck-store: el cliente aplica la foto en el DOM
+   * y persiste con PUT /api/deck/:id/slides al guardar.
+   *
+   * Body JSON: { query: string, orientation?: 'landscape'|'portrait', excludeIds?: string[] }
+   * Respuestas: 200 { id, dataUri, photographer }
+   *             400 falta query | 404 sin resultados | 409 sin configurar | 502 error de la API
+   */
+  app.post('/api/unsplash/photo', async (req, reply) => {
+    if (!isUnsplashConfigured()) {
+      return reply.status(409).send({ error: 'Unsplash no está configurado en el servidor.' })
+    }
+
+    const body = req.body as { query?: unknown; orientation?: unknown; excludeIds?: unknown }
+    const query = typeof body?.query === 'string' ? body.query.trim() : ''
+    if (!query) {
+      return reply.status(400).send({ error: 'Falta la búsqueda (campo "query").' })
+    }
+    const orientation = body?.orientation === 'portrait' ? 'portrait' : 'landscape'
+    const excludeIds = Array.isArray(body?.excludeIds)
+      ? body.excludeIds.filter((x): x is string => typeof x === 'string')
+      : []
+
+    try {
+      const pick = await pickUnsplashPhoto(query, orientation, excludeIds)
+      if (!pick) {
+        return reply.status(404).send({ error: `Sin resultados en Unsplash para "${query}".` })
+      }
+      return reply.send(pick)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return reply.status(502).send({ error: `Error consultando Unsplash: ${msg}` })
+    }
   })
 
   /**
