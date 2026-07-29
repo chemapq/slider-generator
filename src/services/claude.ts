@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
-import { SlidesSchema, type Slides } from '../config/schema.js'
+import { SlidesSchema, ANIM_EFFECTS, type Slides } from '../config/schema.js'
 import type { Theme } from '../config/theme-schema.js'
 import type { ReferenceImageBlock } from './references.js'
 
@@ -190,6 +190,55 @@ const FREE_DENSITY = `## Reglas de calidad
 - Cuida el detalle: alineaciones, aire, jerarquía y consistencia entre slides, como en las referencias.
 - El avatar (data-avatar) solo en la bienvenida y el cierre, y solo si hay avatar disponible.`
 
+// ── Coreografía de entrada dirigida por datos (campo `anim`) ────────────────────
+// El LLM NO escribe código de animación: emite una lista de pasos (datos) que el
+// intérprete de confianza del deck traduce a GSAP. La enum de efectos vive en el
+// schema (ANIM_EFFECTS) para no divergir.
+const ANIM_GUIDE = `## Animaciones de entrada (campo \`anim\`)
+
+Cada slide puede incluir un \`anim\` OPCIONAL: la coreografía de entrada de su contenido, que se
+re-dispara cada vez que el slide se muestra. Es una lista de pasos; cada paso es:
+\`{ "target": "<selector CSS>", "effect": "<efecto>", "delay"?: seg, "duration"?: seg, "stagger"?: seg }\`
+
+- \`target\`: selector CSS que se resuelve DENTRO de ese slide. Apunta a etiquetas/clases que TÚ pones
+  en su \`html\` (\`h1\`, \`h2\`, \`.kicker\`, \`.lead\`, \`.card\`, \`.stat\`, \`.tag\`, \`.imgbox\`…) o añade una
+  clase-gancho propia. Si el selector casa VARIOS elementos, \`stagger\` los escalona en cascada.
+- \`effect\`: uno de → ${ANIM_EFFECTS.join(' · ')} (cualquier otro valor se ignora):
+    fadeIn          aparición simple
+    fadeUp / fadeDown   aparece subiendo / bajando (texto, párrafos)
+    fadeLeft / fadeRight  entra desde un lado (titulares, columnas)
+    zoomIn          entra escalando un poco (tarjetas, stats)
+    pop             aparece con rebote (chips .tag, badges, iconos, botones)
+    blurIn          entra desenfocado y enfoca (kicker, cita destacada)
+    drawLine        traza un <path>/línea SVG (subrayados, conectores, separadores)
+- \`delay\` (0–6, def 0), \`duration\` (0.1–4, def 0.6), \`stagger\` (0–1, def 0.08): segundos; se clampan.
+
+Guía de coreografía:
+- 2–4 pasos por slide bastan. NO animes cada hoja: apunta a los BLOQUES principales o a grupos de
+  hermanos (un solo paso \`{ "target": ".card", "stagger": 0.12 }\` anima TODAS las tarjetas en cascada).
+- Secuencia con \`delay\` creciente para marcar el orden de lectura: kicker → h1 → .lead → cta/tarjetas.
+- Empareja efecto y contenido: \`pop\` para chips/badges/iconos; \`drawLine\` para líneas/subrayados SVG;
+  \`fadeUp\` para texto; \`zoomIn\`/\`fadeLeft\` para tarjetas y stats.
+- La transición ENTRE slides (empuje horizontal) y \`prefers-reduced-motion\` los gobierna el deck: NO
+  los toques. \`anim\` es solo la entrada del contenido del slide.
+- Es opcional: sin \`anim\`, el deck aplica una cascada de subida por defecto. Omítelo en slides
+  puramente decorativas si no aporta.
+
+Ejemplos:
+\`\`\`json
+// portada
+"anim": [
+  { "target": ".kicker", "effect": "blurIn", "duration": 0.6 },
+  { "target": "h1", "effect": "fadeUp", "delay": 0.15 },
+  { "target": ".lead", "effect": "fadeUp", "delay": 0.3 }
+]
+// slide de contenido con tarjetas
+"anim": [
+  { "target": "h2", "effect": "fadeLeft" },
+  { "target": ".card", "effect": "pop", "delay": 0.25, "stagger": 0.12 }
+]
+\`\`\``
+
 function buildSystemPrompt(
   theme: Theme,
   manifest: ImageManifestEntry[],
@@ -216,6 +265,7 @@ function buildSystemPrompt(
 - Genera ~17–19 slides: aproximadamente 1 idea central del guion por slide.
 - Texto conciso y apto para slide: frases cortas. Para listas largas usa una slide de lista completa.
 - Devuelve también "narration" en cada slide (ver sección ## Narración más abajo).
+- Puedes dar a cada slide una coreografía de entrada OPCIONAL en "anim" (ver sección ## Animaciones).
 
 ## Tokens disponibles (usa var(…) para anclar colores/sombras/radios)
 \`\`\`
@@ -327,6 +377,8 @@ ${freeMode ? FREE_LAYOUT : STRICT_LAYOUT}
 ${buildImageRules(manifest, hasAvatar, freeMode, unsplashEnabled)}
 
 ${freeMode ? FREE_DENSITY : STRICT_DENSITY}
+
+${ANIM_GUIDE}
 
 ## Narración (voz en off)
 

@@ -1,7 +1,8 @@
 /**
  * Shell del deck propio: HTML autocontenido con CSS+JS inline, 16:9,
- * transición fade/scale, nav flotante tipo cristal, barra de progreso
- * degradada, puntos que se alargan y auto-reescalado.
+ * transición push horizontal entre slides + cascada de entrada del contenido
+ * (GSAP core, CDN), nav flotante tipo cristal, barra de progreso degradada,
+ * puntos que se alargan y auto-reescalado.
  * Chrome portado del deck demo de referencia (presentacion-growth-revops.html).
  *
  * Motor de audio (V5): lee window.__DECK_AUDIO__ y window.__DECK_OPTS__ inyectados
@@ -59,13 +60,58 @@ body {
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: scale(.985);
-  transition: opacity .5s ease, transform .5s ease;
+  z-index: 1;
+  /* Estado base = slide "por delante" (i > cur): espera entrando desde la derecha. */
+  transform: translateX(70px);
+  transition: opacity .45s ease, transform .62s cubic-bezier(.22, .61, .36, 1);
   display: flex;
 }
-.slide.active { opacity: 1; pointer-events: auto; transform: scale(1); z-index: 2; }
-.slide.prev   { opacity: 0; transform: scale(1.01); }
+/* Activa: centrada. Leve retardo de opacidad → entra "a través" de la saliente. */
+.slide.active { opacity: 1; pointer-events: auto; transform: translateX(0); z-index: 2; transition: opacity .5s ease .08s, transform .62s cubic-bezier(.22, .61, .36, 1); }
+/* "Por detrás" (i < cur): empujada a la izquierda. Dirección automática: al avanzar la
+   activa pasa a .prev (sale por la izquierda); al retroceder vuelve a base (sale por la derecha). */
+.slide.prev   { opacity: 0; transform: translateX(-70px); }
 .slide .notes { display: none; }
+
+/* Accesibilidad: sin desplazamientos si el usuario lo pide (la cascada GSAP también se corta). */
+@media (prefers-reduced-motion: reduce) {
+  .slide, .slide.active, .slide.prev { transform: none; transition: opacity .3s ease; }
+}
+
+/* ── Capa PERSISTENTE en primer plano (#flow) ──────────────────────────────────
+   Orbes de glow que NO se reinician entre slides: viajan suavemente de una posición a la
+   siguiente al navegar (continuidad entre slides). Van por ENCIMA de la capa del tema
+   (z-index 3), muy difusos y a baja opacidad para no tapar el contenido. Color por tokens
+   del tema → estilo coherente con el resto de acentos. */
+#flow { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+#flow .orb { position: absolute; border-radius: 50%; filter: blur(60px); transform: translate(-50%, -50%); will-change: transform; }
+#flow .orb-a { width: 440px; height: 440px; left: 28%; top: 32%; opacity: .18; background: radial-gradient(circle at 42% 42%, var(--primary, #0ABCC9), transparent 68%); }
+#flow .orb-b { width: 360px; height: 360px; left: 74%; top: 66%; opacity: .15; background: radial-gradient(circle at 45% 45%, var(--primary-300, #19F7F1), transparent 66%); }
+#flow .orb-c { width: 500px; height: 500px; left: 56%; top: 22%; opacity: .12; background: radial-gradient(circle at 50% 50%, var(--primary-600, #0FCED3), transparent 70%); }
+
+/* ── Acentos decorativos en PRIMER PLANO (siempre visibles, incluso sobre slides opacas) ──
+   Overlay dentro de #stage, por ENCIMA de las slides (z-index 3), pointer-events:none. Para
+   decks que imitan referencias de fondo opaco, el motion de fondo se taparía: esto no. Muy
+   sutil. Se alimenta de los tokens del tema (--primary-300…) con fallback a los cianes de marca. */
+#decor-fg { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+#decor-fg svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+#decor-fg .fg-line { fill: none; stroke: var(--primary-300, #19F7F1); stroke-width: 1.5; opacity: .3; }
+#decor-fg .fg-bracket { fill: none; stroke: var(--primary-300, #19F7F1); stroke-width: 2; opacity: .42; stroke-linecap: round; }
+#decor-fg .glint {
+  position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--primary-300, #19F7F1); opacity: .22;
+  box-shadow: 0 0 12px 2px var(--primary-300, #19F7F1);
+}
+#decor-fg .g1 { top: 30px; left: 34px; }
+#decor-fg .g2 { top: 30px; right: 34px; }
+#decor-fg .g3 { bottom: 30px; left: 34px; }
+#decor-fg .g4 { bottom: 30px; right: 34px; }
+/* Barrido de luz diagonal (token) que cruza el escenario una vez por transición. */
+#decor-fg .sweep {
+  position: absolute; top: -10%; left: 0; width: 200px; height: 120%;
+  background: linear-gradient(90deg, transparent, var(--primary-300, #19F7F1), transparent);
+  opacity: 0; filter: blur(12px);
+}
 
 /* Barra de progreso (degradada, fixed arriba) */
 #progress {
@@ -244,6 +290,60 @@ const DECK_JS = `
   var total  = slides.length;
   var cur    = 0;
 
+  // ── Animación de entrada de contenido (GSAP core, vía CDN) ────────────────────
+  // GSAP solo pinta la CASCADA del contenido de la slide activa. La transición ENTRE
+  // slides es CSS (fiable, sin depender del CDN ni de reescrituras por frame). Si GSAP
+  // no carga, el contenido aparece sin cascada y el deck funciona igual.
+  var G        = window.gsap;
+  var useGSAP  = !!G;
+  var motionOK = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  // Acentos en primer plano (líneas + destellos en esquinas). Van por ENCIMA de las
+  // slides, así que se ven siempre, aunque la slide sea un panel opaco (reproducción de
+  // referencias). Se animan en cada cambio de slide.
+  var decorFg   = document.getElementById('decor-fg');
+  var fgLines   = decorFg ? Array.from(decorFg.querySelectorAll('.fg-line')) : [];
+  var fgStrokes = decorFg ? Array.from(decorFg.querySelectorAll('.fg-line, .fg-bracket')) : [];
+  var glints    = decorFg ? Array.from(decorFg.querySelectorAll('.glint')) : [];
+  var sweep     = decorFg ? decorFg.querySelector('.sweep') : null;
+  // "Trazado" de líneas y brackets SIN plugin: stroke-dasharray = longitud del path; luego
+  // se anima el dashoffset de len→0. Si no se anima (reduced-motion), quedan dibujados.
+  if (useGSAP) {
+    fgStrokes.forEach(function (ln) {
+      var len = ln.getTotalLength ? ln.getTotalLength() : 1200;
+      ln.style.strokeDasharray = String(len);
+      ln.setAttribute('data-len', String(len));
+    });
+    if (sweep) G.set(sweep, { x: -260, opacity: 0 });
+    // Respiración continua y sutil de los destellos entre transiciones (da vida al reposo).
+    if (motionOK && glints.length) {
+      G.to(glints, { opacity: '+=0.13', duration: 2.2, ease: 'sine.inOut', repeat: -1, yoyo: true,
+        stagger: { each: 0.4, from: 'random' } });
+    }
+  }
+
+  // ── Capa PERSISTENTE en primer plano (#flow) ──────────────────────────────────
+  // Orbes de glow que NO se reinician entre slides: cada cambio los hace VIAJAR de su
+  // posición actual a la del nuevo slide (posición determinista por índice → reversible).
+  var flowEl  = document.getElementById('flow');
+  var orbs    = flowEl ? Array.from(flowEl.querySelectorAll('.orb')) : [];
+  var ORB_CFG = [{ step: 0.9, rad: 150 }, { step: -0.7, rad: 190 }, { step: 1.15, rad: 130 }];
+  function flowPos(i) {
+    return orbs.map(function (_, k) {
+      var c = ORB_CFG[k % ORB_CFG.length];
+      return { x: Math.cos(i * c.step + k * 1.3) * c.rad, y: Math.sin(i * c.step * 0.8 + k) * c.rad * 0.66 };
+    });
+  }
+  if (useGSAP && orbs.length) {
+    G.set(orbs, { xPercent: -50, yPercent: -50 });
+    // Respiración lenta (escala) continua → vida en reposo, sin pelear con el viaje (x/y).
+    if (motionOK) {
+      orbs.forEach(function (o, k) {
+        G.to(o, { scale: 1.12, duration: 6 + k, ease: 'sine.inOut', repeat: -1, yoyo: true, delay: k * 0.6 });
+      });
+    }
+  }
+
   var dotsEl = document.getElementById('dots');
   slides.forEach(function (_, i) {
     var d = document.createElement('span');
@@ -256,6 +356,135 @@ const DECK_JS = `
 
   function pad(n) { return String(n + 1).padStart(2, '0'); }
 
+  // Hijos "animables" de un nodo: elementos, menos las notas (aside .notes, ocultas).
+  function contentKids(node) {
+    return Array.prototype.filter.call(node.children, function (el) {
+      return !el.classList.contains('notes');
+    });
+  }
+
+  // Nivel sobre el que cascadear. Si la slide es un ÚNICO envoltorio (p. ej. una columna
+  // que abraza todo el contenido), descendemos hasta el primer nivel con varios elementos
+  // y cascadeamos ESOS; así el escalonado no se colapsa en un solo bloque.
+  function cascadeTargets(active) {
+    var els = contentKids(active);
+    for (var g = 0; g < 4 && els.length === 1 && els[0].children.length > 0; g++) {
+      els = contentKids(els[0]);
+    }
+    return els;
+  }
+
+  // ── Intérprete de coreografía dirigido por spec (data-anim) ───────────────────
+  // SEGURIDAD: el deck NUNCA ejecuta código del LLM. El slide trae un atributo
+  // data-anim con DATOS (JSON): una lista de pasos { target, effect, delay?, duration?,
+  // stagger? }. Este intérprete de confianza los traduce a GSAP. Un efecto fuera del
+  // catálogo se ignora; un selector inválido se captura y se salta; los números se
+  // clampan. Sin data-anim válido, se cae a la cascada genérica de siempre.
+  var ANIM_VIS = { autoAlpha: 1, x: 0, y: 0, scale: 1 };
+  var ANIM_FX = {
+    fadeIn:    { from: { autoAlpha: 0 } },
+    fadeUp:    { from: { autoAlpha: 0, y: 26 } },
+    fadeDown:  { from: { autoAlpha: 0, y: -26 } },
+    fadeLeft:  { from: { autoAlpha: 0, x: -30 } },
+    fadeRight: { from: { autoAlpha: 0, x: 30 } },
+    zoomIn:    { from: { autoAlpha: 0, scale: 0.9 } },
+    pop:       { from: { autoAlpha: 0, scale: 0.55 }, ease: 'back.out(1.7)' },
+    blurIn:    { from: { autoAlpha: 0, filter: 'blur(14px)' }, to: { filter: 'blur(0px)' } }
+  };
+  function clampNum(v, lo, hi, dflt) {
+    v = (typeof v === 'number' && isFinite(v)) ? v : dflt;
+    return Math.max(lo, Math.min(hi, v));
+  }
+  // "Trazado" de un <path>/línea SVG sin plugin: dasharray = longitud, offset len→0.
+  function animDrawLine(node, dur, delay) {
+    var len = node.getTotalLength ? node.getTotalLength() : 1000;
+    G.fromTo(node, { strokeDasharray: len, strokeDashoffset: len },
+      { strokeDashoffset: 0, duration: dur, delay: delay, ease: 'power2.out', overwrite: 'auto' });
+  }
+  function runAnimSpec(active, spec) {
+    var applied = false;
+    for (var i = 0; i < spec.length; i++) {
+      var step = spec[i];
+      if (!step || typeof step.target !== 'string') continue;
+      var nodes;
+      try { nodes = active.querySelectorAll(step.target); }
+      catch (e) { continue; } // selector inválido → saltar el paso, no romper el resto
+      if (!nodes.length) continue;
+      var dur   = clampNum(step.duration, 0.1, 4, 0.6);
+      var delay = clampNum(step.delay, 0, 6, 0);
+      var stgr  = clampNum(step.stagger, 0, 1, 0.08);
+      if (step.effect === 'drawLine') {
+        Array.prototype.forEach.call(nodes, function (n, k) { animDrawLine(n, dur, delay + k * stgr); });
+        applied = true;
+        continue;
+      }
+      var fx = ANIM_FX[step.effect];
+      if (!fx) continue; // efecto fuera del catálogo → ignorar
+      var toVars = Object.assign({}, ANIM_VIS, fx.to || {},
+        { duration: dur, delay: delay, stagger: stgr, ease: fx.ease || 'power2.out', overwrite: 'auto' });
+      G.fromTo(nodes, fx.from, toVars);
+      applied = true;
+    }
+    return applied;
+  }
+  function parseAnimSpec(active) {
+    var raw = active.getAttribute && active.getAttribute('data-anim');
+    if (!raw) return null;
+    try {
+      var spec = JSON.parse(raw);
+      return (Array.isArray(spec) && spec.length) ? spec : null;
+    } catch (e) { return null; }
+  }
+
+  // Entrada del contenido de la slide activa. Si el slide trae un spec (data-anim) válido,
+  // el LLM gobierna la coreografía; si no, cascada genérica: fade + subida escalonada.
+  function animateContent() {
+    if (!useGSAP || !motionOK) return;
+    var active = slides[cur];
+    if (!active) return;
+    var spec = parseAnimSpec(active);
+    if (spec && runAnimSpec(active, spec)) return;
+    var targets = cascadeTargets(active);
+    if (!targets.length) return;
+    G.fromTo(targets, { autoAlpha: 0, y: 22 },
+      { autoAlpha: 1, y: 0, duration: 0.55, ease: 'power2.out', stagger: 0.07, delay: 0.12, overwrite: 'auto' });
+  }
+
+  // Acentos en 1er plano (todos con color de TOKEN → encajan con cualquier tema). En cada
+  // cambio de slide: las líneas y los brackets de esquina se re-trazan, los destellos dan un
+  // "pop" de tamaño y un barrido de luz diagonal cruza el escenario. Al ir por encima del
+  // contenido, se ven aunque la slide sea un panel opaco (reproducción de referencias).
+  function animateAccents() {
+    if (!useGSAP || !motionOK) return;
+    fgStrokes.forEach(function (ln) {
+      var len = parseFloat(ln.getAttribute('data-len')) || 1200;
+      G.fromTo(ln, { strokeDashoffset: len },
+        { strokeDashoffset: 0, duration: 0.9, ease: 'power2.out', overwrite: 'auto' });
+    });
+    // Pop de tamaño de los destellos (la opacidad la gobierna la respiración continua).
+    if (glints.length) {
+      G.fromTo(glints, { scale: 0.55 }, { scale: 1, duration: 0.5, ease: 'back.out(2)', stagger: 0.06, overwrite: 'auto' });
+    }
+    // Barrido de luz diagonal que cruza una vez.
+    if (sweep) {
+      G.fromTo(sweep, { x: -260, opacity: 0 },
+        { keyframes: [{ opacity: 0.14, duration: 0.3 }, { x: 1340, opacity: 0, duration: 0.75 }],
+          ease: 'power1.inOut', overwrite: 'auto' });
+    }
+  }
+
+  // Los orbes de #flow NO se reinician: viajan de la posición del slide anterior a la del
+  // actual al navegar (persistencia + continuidad). El viaje (x/y) convive con la respiración
+  // (scale). Con reduced-motion se reposicionan al instante, sin viaje.
+  function animateFlow() {
+    if (!useGSAP || !orbs.length) return;
+    var pos = flowPos(cur);
+    orbs.forEach(function (o, k) {
+      if (motionOK) G.to(o, { x: pos[k].x, y: pos[k].y, duration: 1.0, ease: 'power2.inOut', overwrite: 'auto' });
+      else G.set(o, { x: pos[k].x, y: pos[k].y });
+    });
+  }
+
   function render() {
     slides.forEach(function (s, i) {
       s.classList.toggle('active', i === cur);
@@ -266,6 +495,9 @@ const DECK_JS = `
     var progress = document.getElementById('progress');
     if (counter)  counter.textContent  = pad(cur) + ' / ' + pad(total - 1);
     if (progress) progress.style.width = (total > 1 ? (cur / (total - 1)) * 100 : 100) + '%';
+    animateContent();
+    animateAccents();
+    animateFlow();
     playCurrent(); // no-op cuando no hay audio
   }
 
@@ -505,6 +737,69 @@ const SVG_SPEAKER = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const SVG_DOUBLE_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,18 12,12 4,6"/><polyline points="12,18 20,12 12,6"/></svg>`
 const SVG_PLAY_STATIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><polygon points="5,3 19,12 5,21"/></svg>`
 
+// GSAP core vía CDN (solo el core: ni la cascada ni el trazado de acentos necesitan plugins:
+// el "draw" se hace con stroke-dasharray/offset). Si no carga, window.gsap queda indefinido y
+// el deck cae a "sin cascada/acentos" (la transición entre slides es CSS y funciona igual).
+// Va síncrono, antes de DECK_JS.
+const GSAP_CDN = `<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>`
+
+// Capa persistente en primer plano: orbes de glow que viajan entre slides (no se reinician).
+// Va DENTRO de #stage, DESPUÉS de las slides (encima) y ANTES de los acentos crisp.
+const FLOW_HTML = `<div id="flow" aria-hidden="true">
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="orb orb-c"></div>
+</div>`
+
+// Acentos en primer plano: dos líneas de acento (arriba/abajo) que se trazan + cuatro
+// destellos en las esquinas que pulsan. Va DENTRO de #stage, DESPUÉS de las slides (encima).
+const DECOR_FG_HTML = `<div id="decor-fg" aria-hidden="true">
+  <div class="sweep"></div>
+  <svg viewBox="0 0 1280 720" preserveAspectRatio="none">
+    <path class="fg-line" d="M40,44 H1240"/>
+    <path class="fg-line" d="M40,676 H1240"/>
+    <path class="fg-bracket" d="M34,64 V34 H64"/>
+    <path class="fg-bracket" d="M1246,64 V34 H1216"/>
+    <path class="fg-bracket" d="M34,656 V686 H64"/>
+    <path class="fg-bracket" d="M1246,656 V686 H1216"/>
+  </svg>
+  <span class="glint g1"></span><span class="glint g2"></span><span class="glint g3"></span><span class="glint g4"></span>
+</div>`
+
+// ── Render de UNA slide, autónomo y estático (para la revisión visual) ──────────
+// Documento mínimo 1280×720 con el MISMO BASE_CSS + tema + clases que el deck real
+// (\`slide active <slideClass>\`), pero sin nav, barra, audio, GSAP ni acentos: solo el
+// contenido sobre su fondo, forzado visible y quieto para capturarlo en un navegador
+// headless. Sirve para que Claude VEA la slide y detecte problemas de legibilidad.
+export function renderSlideStandalone({
+  css,
+  slideClass,
+  body,
+}: {
+  css: string
+  slideClass?: string
+  body: string
+}): string {
+  const cls = `slide active${slideClass ? ` ${escapeHtml(slideClass)}` : ''}`
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+${BASE_CSS}
+${css}
+/* Captura: slide visible, quieto y sin recorte de animación. Va al final para ganar. */
+#stage { transform: none !important; }
+.slide { opacity: 1 !important; transform: none !important; transition: none !important; pointer-events: auto !important; }
+</style>
+</head>
+<body>
+<div id="stage"><section class="${cls}">${body}</section></div>
+</body>
+</html>
+`
+}
+
 // ── Plantilla HTML ────────────────────────────────────────────────────────────
 export function renderDeck({ title, css, slides, audioScript }: DeckParts): string {
   return `<!doctype html>
@@ -522,6 +817,8 @@ ${css}
 <div id="progress"></div>
 <div id="stage">
 ${slides}
+${FLOW_HTML}
+${DECOR_FG_HTML}
 </div>
 <div id="captions"></div>
 <div id="audio-timer">
@@ -541,6 +838,7 @@ ${slides}
   <button id="next" aria-label="Siguiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
 </div>
 <div class="hint">← / → · barra espaciadora</div>
+${GSAP_CDN}
 ${audioScript ?? ''}<script>${DECK_JS}</script>
 </body>
 </html>

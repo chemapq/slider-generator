@@ -1,7 +1,9 @@
 import type { Slides } from '../config/schema.js'
 import type { Theme } from '../config/theme-schema.js'
-import { renderDeck } from '../templates/deck.js'
+import { renderDeck, renderSlideStandalone } from '../templates/deck.js'
 import type { DeckAudio } from './tts.js'
+
+type Slide = Slides['slides'][number]
 
 export interface DeckImages {
   /** id de imagen placeholder ("h1", "v2"…) → data URI. */
@@ -69,6 +71,18 @@ function fillSlots(html: string, images: DeckImages): string {
   return html
 }
 
+/**
+ * Renderiza UNA sola slide como documento autónomo 1280×720 (sin player, audio ni
+ * GSAP), con las imágenes ya bajadas por fillSlots. Se usa para capturarla en headless
+ * y que Claude la revise visualmente. Reutiliza el mismo tema y las mismas clases que
+ * el deck real, así que refleja fielmente su fondo y legibilidad.
+ */
+export function renderSingleSlide(slide: Slide, theme: Theme, images?: DeckImages): string {
+  const imgs: DeckImages = images ?? { placeholders: new Map() }
+  const body = fillSlots(slide.html, imgs)
+  return renderSlideStandalone({ css: theme.css, slideClass: slide.slideClass, body })
+}
+
 export function renderSlides(
   data: Slides,
   theme: Theme,
@@ -85,7 +99,14 @@ export function renderSlides(
       const notes = slide.notes
         ? `\n      <aside class="notes">${escapeHtml(slide.notes)}</aside>`
         : ''
-      return `    <section class="${cls}">\n${body}${notes}\n    </section>`
+      // Spec de animación como DATOS en un atributo (nunca código). El intérprete de
+      // deck.ts lo lee con getAttribute + JSON.parse. escapeAttr protege las comillas
+      // del JSON dentro del atributo con comillas dobles.
+      const anim =
+        slide.anim && slide.anim.length
+          ? ` data-anim="${escapeAttr(JSON.stringify(slide.anim))}"`
+          : ''
+      return `    <section class="${cls}"${anim}>\n${body}${notes}\n    </section>`
     })
     .join('\n')
 

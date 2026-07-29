@@ -50,12 +50,55 @@ import { z } from 'zod'
  *   "outro"           conclusión con .tutor
  *   "closing"         cierre final (fondo degradado; sin brandbar o con .brand.light)
  */
+/**
+ * Catálogo de efectos de entrada PERMITIDOS (allowlist). El deck solo sabe interpretar
+ * estos nombres; cualquier otro valor se ignora en runtime. El LLM NO escribe código:
+ * emite un `anim` (datos) que el intérprete de confianza de deck.ts traduce a llamadas
+ * GSAP con parámetros validados. Esta enum es el límite de seguridad.
+ *
+ *   fadeIn/Up/Down/Left/Right  aparición con desplazamiento suave
+ *   zoomIn                     entra ligeramente escalando
+ *   pop                        aparece con rebote (ideal para chips/badges/iconos)
+ *   blurIn                     entra desenfocado y enfoca
+ *   drawLine                   traza un <path>/línea SVG (dibujado progresivo)
+ */
+export const ANIM_EFFECTS = [
+  'fadeIn',
+  'fadeUp',
+  'fadeDown',
+  'fadeLeft',
+  'fadeRight',
+  'zoomIn',
+  'pop',
+  'blurIn',
+  'drawLine',
+] as const
+
+/** Un paso de la coreografía de entrada del slide. */
+const AnimStep = z.object({
+  // Selector CSS resuelto DENTRO del <section> del slide (querySelectorAll).
+  // Ej: ".title", "h1", ".card", ".card .ico". Selector inválido → el paso se salta.
+  target: z.string(),
+  // Efecto del catálogo permitido (ANIM_EFFECTS).
+  effect: z.enum(ANIM_EFFECTS),
+  // Retardo antes de empezar, en segundos. Clamp en runtime a [0, 6]. Por defecto 0.
+  delay: z.number().optional(),
+  // Duración en segundos. Clamp en runtime a [0.1, 4]. Por defecto 0.6.
+  duration: z.number().optional(),
+  // Escalonado entre los elementos que casan `target`, en segundos. Clamp [0, 1]. Por defecto 0.08.
+  stagger: z.number().optional(),
+})
+
 const Slide = z.object({
   // Clase especial del <section>. Ver valores canónicos arriba.
   slideClass: z.string().optional(),
   // HTML interno del <section>. Puede incluir style="…" inline e iconos SVG.
   // Los slots data-img / data-avatar los rellena el renderer (renderSlides).
   html: z.string(),
+  // Coreografía de ENTRADA del contenido (se re-dispara cada vez que el slide se activa).
+  // Opcional: sin `anim`, el deck cae a la cascada genérica de siempre. El movimiento
+  // ENTRE slides (push horizontal) lo gobierna el deck, no el LLM.
+  anim: z.array(AnimStep).optional(),
   notes: z.string().optional(),
   // Tramo del texto ÍNTEGRO y literal del PDF que corresponde a esta slide,
   // con limpieza ligera (sin nº de página / encabezados repetidos / cortes de palabra).

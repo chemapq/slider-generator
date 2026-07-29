@@ -15,6 +15,7 @@ import {
   pickUnsplashPhoto,
 } from '../services/unsplash.js'
 import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
+import { reviewDeck } from '../services/review.js'
 import { putDeck, getDeck, updateDeckSlides } from '../services/deck-store.js'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
@@ -190,6 +191,24 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
             'X-Image-Warning',
             'No se pudieron obtener fotos de Unsplash; el deck usa fondos de relleno.',
           )
+        }
+      }
+
+      // Revisión visual (2ª llamada por slide): renderiza cada slide, Claude la VE y
+      // corrige contraste/legibilidad/solapes en sitio. Va DESPUÉS de resolver imágenes
+      // (para revisar las fotos reales) y antes de render/putDeck. Aislada: si falla, el
+      // deck sale sin corregir. Se puede desactivar con VISUAL_REVIEW=off.
+      if (process.env.VISUAL_REVIEW !== 'off') {
+        try {
+          const rev = await reviewDeck(slides.slides, theme, deckImages)
+          reply.header(
+            'X-Review',
+            `reviewed=${rev.reviewed};changed=${rev.changed};failed=${rev.failed}`,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.warn('[review] fallo general de la revisión visual:', msg)
+          reply.header('X-Review', 'error')
         }
       }
 
