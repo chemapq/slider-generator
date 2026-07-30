@@ -123,7 +123,12 @@ body {
   transition: width .4s ease;
 }
 
-/* Nav flotante (cristal, fixed abajo-centro) */
+/* Nav flotante (fixed abajo-centro).
+   El chrome va SIEMPRE en oscuro translúcido, nunca en blanco: un velo blanco con
+   iconos blancos desaparecía sobre las slides claras (fondo --bg, tarjetas .card…).
+   En oscuro se lee sobre cualquier fondo, igual que #captions y #audio-timer.
+   El borde lleva dos capas —línea clara por dentro, halo oscuro por fuera— para que
+   el contorno del pill se distinga tanto sobre blanco como sobre negro. */
 #nav {
   position: fixed;
   bottom: 22px;
@@ -133,14 +138,15 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: rgba(255, 255, 255, .10);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(10, 9, 18, .72);
+  backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, .2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .34), 0 1px 3px rgba(0, 0, 0, .28);
   padding: 9px 16px;
   border-radius: 999px;
 }
 #nav button {
-  background: rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .16);
   border: none;
   color: #fff;
   width: 34px;
@@ -150,10 +156,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background .2s;
+  transition: background .2s, box-shadow .2s;
 }
-#nav button:hover  { background: rgba(255, 255, 255, .28); }
-#nav button.active { background: rgba(255, 255, 255, .38); }
+#nav button:hover  { background: rgba(255, 255, 255, .30); }
+/* Estado activo (mute / CC / auto): además del relleno, un aro para que se distinga
+   del hover incluso mirando de lejos. */
+#nav button.active {
+  background: rgba(255, 255, 255, .42);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .85);
+}
 #nav button svg    { width: 16px; height: 16px; }
 #counter {
   color: #fff;
@@ -169,7 +180,7 @@ body {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .30);
+  background: rgba(255, 255, 255, .38);
   cursor: pointer;
   transition: all .25s;
 }
@@ -227,10 +238,11 @@ body {
   height: 52px;
   align-items: center;
   justify-content: center;
-  background: rgba(8, 7, 14, .55);
-  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(10, 9, 18, .72);
+  border: 1px solid rgba(255, 255, 255, .2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .34), 0 1px 3px rgba(0, 0, 0, .28);
   border-radius: 50%;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px) saturate(140%);
   z-index: 50;
   pointer-events: none;
 }
@@ -263,15 +275,22 @@ body {
   letter-spacing: .02em;
 }
 
-/* Hint teclado (fixed esquina inferior derecha) */
+/* Hint teclado (fixed esquina inferior derecha). Va en su propio pill oscuro por lo
+   mismo que el nav: como texto blanco suelto era ilegible sobre slides claras. */
 .hint {
   position: fixed;
-  bottom: 26px;
+  bottom: 24px;
   right: 26px;
-  color: rgba(255, 255, 255, .45);
+  color: rgba(255, 255, 255, .88);
   font-size: 12px;
   z-index: 50;
   font-weight: 500;
+  background: rgba(10, 9, 18, .72);
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 999px;
+  padding: 4px 11px;
+  backdrop-filter: blur(10px);
+  pointer-events: none;
 }
 @media (max-width: 640px) { .hint { display: none; } }
 `.trim()
