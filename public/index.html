@@ -164,10 +164,78 @@
     }
     button#regen-audio-btn:hover:not(:disabled) { background: #203830; }
     button#regen-audio-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    #audio-status { font-size: 0.8rem; display: none; }
-    #audio-status.loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
-    #audio-status.error   { display: block; color: #ff7a7a; }
-    #audio-status.warning { display: block; color: #ffa940; }
+    #audio-status, #script-status { font-size: 0.8rem; display: none; }
+    #audio-status.loading, #script-status.loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
+    #audio-status.error,   #script-status.error   { display: block; color: #ff7a7a; }
+    #audio-status.warning, #script-status.warning { display: block; color: #ffa940; }
+    #audio-status.ok,      #script-status.ok      { display: block; color: #5dd8b0; }
+
+    /* Panel: guion de voz (narración editable por slide) */
+    #script-panel {
+      display: none; flex-direction: column; gap: 0.75rem;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.25rem;
+    }
+    #script-panel .panel-title {
+      font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    #script-panel .panel-title .opt {
+      font-weight: 400; text-transform: none; letter-spacing: 0; color: #5a5a68;
+    }
+    #script-list {
+      display: flex; flex-direction: column; gap: 0.5rem;
+      max-height: 440px; overflow-y: auto; padding-right: 0.25rem;
+    }
+    .script-row {
+      border: 1px solid var(--border-soft); border-left: 3px solid var(--border);
+      border-radius: 9px; background: #131319; padding: 0.6rem 0.75rem;
+      display: flex; flex-direction: column; gap: 0.4rem;
+    }
+    .script-row.is-dirty { border-left-color: var(--brand); background: #17172a; }
+    .script-row .row-head {
+      display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .script-row .row-num { color: #c0bcff; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .script-row .row-label { color: var(--text); font-weight: 500; }
+    .script-row .row-chip {
+      font-size: 0.66rem; background: #22222c; color: var(--muted);
+      padding: 0.15em 0.45em; border-radius: 4px; font-weight: 600;
+    }
+    .script-row .row-chip.mute { background: #2a2218; color: #ffa940; }
+    .script-row .row-spacer { flex: 1; }
+    .script-row .row-chars { font-size: 0.72rem; color: #5a5a68; font-variant-numeric: tabular-nums; }
+    .script-row .row-chars.over { color: #ff7a7a; font-weight: 600; }
+    .script-row .row-goto {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--muted); font-size: 0.72rem; font-weight: 600;
+      padding: 0.15rem 0.5rem; cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .script-row .row-goto:hover { color: #c0bcff; border-color: #2e2c52; }
+    .script-row textarea {
+      width: 100%; min-height: 62px; max-height: 240px; resize: vertical;
+      background: #0f0f14; color: var(--text); border: 1px solid var(--border);
+      border-radius: 7px; padding: 0.55rem 0.7rem;
+      font-family: inherit; font-size: 0.84rem; line-height: 1.5;
+    }
+    .script-row textarea:focus { outline: none; border-color: var(--brand); }
+    .script-row textarea::placeholder { color: #4e4e5c; }
+    #script-panel .panel-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    #script-dirty { font-size: 0.78rem; color: var(--muted); flex: 1; }
+    button#script-save-btn {
+      background: #1e2233; color: #8fb4ff; border: 1px solid #2a3350; border-radius: 8px;
+      padding: 0.55rem 1.1rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s; white-space: nowrap;
+    }
+    button#script-save-btn:hover:not(:disabled) { background: #262c47; }
+    button#script-regen-btn {
+      background: #1a2e2a; color: #5dd8b0; border: 1px solid #253e36; border-radius: 8px;
+      padding: 0.55rem 1.1rem; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+      transition: background 0.15s; white-space: nowrap;
+    }
+    button#script-regen-btn:hover:not(:disabled) { background: #203830; }
+    button#script-save-btn:disabled, button#script-regen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     button#generate-btn {
       background: var(--brand); color: #fff; border: none; border-radius: 8px;
@@ -214,6 +282,12 @@
       padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
     }
     button#save-btn:hover { background: #262c47; }
+    button#script-toggle-btn {
+      background: #2a2218; color: #ffc470; border: 1px solid #3a3020; border-radius: 7px;
+      padding: 0.45rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.15s;
+    }
+    button#script-toggle-btn:hover { background: #33291d; }
+    button#script-toggle-btn.active { background: #3a3020; color: #ffd9a0; }
     #edit-indicator {
       font-size: 0.78rem; text-transform: none; letter-spacing: normal; color: var(--muted); font-weight: 500;
     }
@@ -328,10 +402,23 @@
           <span id="edit-indicator" aria-live="polite"></span>
           <button id="save-btn" type="button" style="display:none">Guardar</button>
           <button id="edit-toggle-btn" type="button">✎ Editar</button>
+          <button id="script-toggle-btn" type="button">🗣 Guion de voz</button>
           <button id="download-btn">Descargar HTML</button>
         </div>
       </div>
       <iframe id="preview" title="Vista previa de la presentación"></iframe>
+
+      <!-- Panel: guion de voz por slide (editar narración + regenerar audio) -->
+      <div id="script-panel">
+        <p class="panel-title">Guion de voz <span class="opt">— el texto que locuta cada slide; al regenerar solo se sintetizan las slides que cambies</span></p>
+        <div id="script-list"></div>
+        <div class="panel-row">
+          <span id="script-dirty" aria-live="polite"></span>
+          <button id="script-save-btn" type="button" disabled>Guardar guion</button>
+          <button id="script-regen-btn" type="button" style="display:none">Guardar y regenerar audio</button>
+        </div>
+        <div id="script-status"></div>
+      </div>
 
       <!-- Panel: regenerar audio sin re-llamar a Claude -->
       <div id="audio-panel">

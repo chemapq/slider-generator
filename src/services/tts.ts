@@ -53,6 +53,19 @@ export interface SynthesizeOptions {
   outputFormat?: string
 }
 
+/**
+ * Identidad de la configuración de voz con la que se sintetizó un audio. Si cambia,
+ * la caché por slide del deck-store deja de servir (hay que re-sintetizar todo).
+ * Resuelve los defaults del entorno para que "voz por defecto" y su id explícito
+ * cuenten como la MISMA voz (si no, cambiar de panel invalidaría la caché en falso).
+ */
+export function voiceCacheKey(opts: SynthesizeOptions = {}): string {
+  const voice = opts.voiceId || process.env.ELEVENLABS_VOICE_ID || ''
+  const model = opts.modelId || DEFAULT_MODEL
+  const format = opts.outputFormat || DEFAULT_OUTPUT_FORMAT
+  return `${voice}|${model}|${format}`
+}
+
 // ── Tipos internos de la respuesta de ElevenLabs ───────────────────────────────
 
 interface Alignment {

@@ -141,10 +141,48 @@ PDF ──▶ Claude ──▶ slides[] con .narration (chunk literal por slide)
 
 ## Extra: re-sintetizar sin volver a llamar a Claude
 
-Existe `POST /api/audio` (`src/routes/generate.ts:208-281`) que re-sintetiza el audio de un deck
-ya generado (cambiar de voz, reactivar subtítulos) **sin** volver a llamar a Claude: recupera las
-narraciones del `deck-store` y repite solo el paso de TTS. Útil para no quemar tokens de Claude ni
-cuota de ElevenLabs regenerando todo.
+Existe `POST /api/audio` que re-sintetiza el audio de un deck ya generado (cambiar de voz,
+reactivar subtítulos) **sin** volver a llamar a Claude: recupera las narraciones del `deck-store`
+y repite solo el paso de TTS. Útil para no quemar tokens de Claude ni cuota de ElevenLabs
+regenerando todo.
+
+---
+
+## 6. Editar el guion y regenerar solo lo que cambió
+
+El texto que locuta cada slide se puede leer y reescribir desde la UI sin volver a generar el deck:
+el botón **🗣 Guion de voz** de la vista previa abre un panel con **una fila por slide** (nº, titular
+de la slide, clase, contador de caracteres, aviso si supera los 9 000 de `MAX_CHARS`, y `Ver slide`
+para saltar la preview a esa slide vía el hook `window.__deckGo`). Las slides sin audio salen
+marcadas `sin audio`.
+
+Endpoints (`src/routes/generate.ts`):
+
+| Endpoint | Qué hace |
+| --- | --- |
+| `GET /api/deck/:id/narrations` | Devuelve `{ index, label, slideClass, narration, hasAudio }` por slide |
+| `PUT /api/deck/:id/narrations` | Guarda el guion editado en el `deck-store` (`""` → slide sin narrar). **No** sintetiza |
+| `POST /api/audio` | Re-sintetiza y devuelve el deck con el audio nuevo embebido |
+
+### Síntesis parcial: solo se paga por lo que cambió
+
+El `deck-store` retiene, junto al deck, el **último audio** sintetizado y con qué se hizo
+(`audio`, `audioKey` = voz+modelo+formato, `audioNarrations` = la narración normalizada de cada
+slide). Al regenerar, `/api/audio` compara y decide slide a slide:
+
+```
+narración igual + ya tenía audio + misma voz/modelo  ──▶  se reutiliza (0 peticiones)
+narración editada  ·  slide antes muda por un fallo  ──▶  se sintetiza
+voz o modelo distintos                               ──▶  caché entera inválida: todo de nuevo
+```
+
+Las slides reutilizadas se saltan pasando `undefined` a `synthesizeDeck`, que ya ignora las
+narraciones vacías → ni petición ni cuota. La respuesta lleva
+`X-Audio-Synth: synthesized=N;reused=M;failed=K`, que la UI muestra como
+*"Audio actualizado ✓ (1 sintetizada · 9 reutilizadas)"*.
+
+Una slide que falló queda `null` (muda) y **no** se reutiliza: volver a pulsar *Regenerar audio*
+es su reintento. El aviso va en `X-Voice-Warning`.
 
 ---
 
@@ -154,7 +192,9 @@ cuota de ElevenLabs regenerando todo.
 | --- | --- |
 | `src/services/claude.ts` | Prompt que hace a Claude emitir `narration` por slide (texto íntegro troceado) |
 | `src/config/schema.ts` | Campo `narration` en el schema de cada `Slide` |
-| `src/services/tts.ts` | Cliente ElevenLabs `with-timestamps` + `buildCues()` (subtítulos) |
-| `src/routes/generate.ts` | Orquesta TTS, aísla fallos, endpoint `/api/audio` de re-síntesis |
+| `src/services/tts.ts` | Cliente ElevenLabs `with-timestamps` + `buildCues()` (subtítulos) + `voiceCacheKey()` |
+| `src/services/deck-store.ts` | Guarda narraciones editadas y la caché de audio por slide |
+| `src/routes/generate.ts` | Orquesta TTS, aísla fallos, endpoints de guion y `/api/audio` (síntesis parcial) |
 | `src/services/slides.ts` | Embebe `window.__DECK_AUDIO__` / `__DECK_OPTS__` en el HTML |
-| `src/templates/deck.ts` | Motor de audio en el navegador: reproducción, subtítulos, auto-avance |
+| `src/templates/deck.ts` | Motor de audio en el navegador: reproducción, subtítulos, auto-avance, hook `__deckGo` |
+| `public/index.html` · `public/app.js` | Panel "Guion de voz": edición por slide, guardado y regeneración |

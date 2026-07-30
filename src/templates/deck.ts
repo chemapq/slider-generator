@@ -721,6 +721,13 @@ const DECK_JS = `
     if (btnAuto) btnAuto.addEventListener('click', toggleAuto);
   }
 
+  // Hook para el panel "Guion" del generador: saltar a una slide desde el parent.
+  // No desbloquea el audio (playCurrent solo suena tras un gesto dentro del deck).
+  window.__deckGo = function (i) {
+    var n = parseInt(i, 10);
+    go(isNaN(n) ? 0 : n);
+  };
+
   // Hook para el editor externo (no afecta al comportamiento normal del deck).
   window.__deckAudioPause = function () {
     audioOn = false;

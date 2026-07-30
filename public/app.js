@@ -12,6 +12,10 @@ let subtitlesEnabled = true
 let currentDeckId = null
 let editing = false
 let unsplashConfigured = false
+// Panel "Guion de voz": narración por slide tal como está en el servidor (línea base
+// para detectar cambios) + si el panel está abierto.
+let scriptBaseline = []
+let scriptOpen = false
 
 const $ = (id) => document.getElementById(id)
 
@@ -36,6 +40,17 @@ const audioStatus    = $('audio-status')
 const editToggleBtn  = $('edit-toggle-btn')
 const saveBtn        = $('save-btn')
 const editIndicator  = $('edit-indicator')
+const scriptToggleBtn = $('script-toggle-btn')
+const scriptPanel    = $('script-panel')
+const scriptList     = $('script-list')
+const scriptStatus   = $('script-status')
+const scriptDirtyEl  = $('script-dirty')
+const scriptSaveBtn  = $('script-save-btn')
+const scriptRegenBtn = $('script-regen-btn')
+
+// Límite por narración en ElevenLabs (src/services/tts.ts: MAX_CHARS). Pasarse deja la
+// slide muda, así que el panel avisa antes de gastar la petición.
+const NARRATION_MAX_CHARS = 9000
 
 // --- Cargar voces disponibles ---
 async function loadVoices() {
@@ -310,6 +325,7 @@ function showResult(html) {
 function hideResult() {
   if (editing && window.DeckEditor) window.DeckEditor.exit(preview)
   resetEditUi()
+  closeScriptPanel()
   resultArea.style.display = 'none'
   preview.src = 'about:blank'
   generatedHtml = null
@@ -346,13 +362,23 @@ function showAudioStatus(type, msg) {
   audioStatus.style.display = type === 'loading' ? 'flex' : 'block'
 }
 
-regenAudioBtn.addEventListener('click', async () => {
-  if (!currentDeckId) return
+regenAudioBtn.addEventListener('click', () => runAudioRegen(showAudioStatus))
+
+/**
+ * Re-sintetiza el audio del deck actual (POST /api/audio) y recarga la preview.
+ * El servidor solo llama a ElevenLabs por las slides cuya narración haya cambiado.
+ * `setStatus(type, msg)` decide en qué panel se ve el progreso (audio o guion).
+ */
+async function runAudioRegen(setStatus) {
+  if (!currentDeckId) {
+    setStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
+    return
+  }
   // Si se está editando, guardar y salir ANTES de regenerar: /api/audio lee las
   // slides del store, y el iframe está a punto de navegar a un documento nuevo.
   await saveAndExitEditing()
-  regenAudioBtn.disabled = true
-  showAudioStatus('loading', 'Sintetizando audio con ElevenLabs…')
+  setAudioButtonsDisabled(true)
+  setStatus('loading', 'Sintetizando audio con ElevenLabs…')
 
   try {
     const res = await fetch('/api/audio', {
@@ -371,7 +397,7 @@ regenAudioBtn.addEventListener('click', async () => {
       if (res.status === 404) {
         audioPanel.style.display = 'none'
         currentDeckId = null
-        showAudioStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
+        setStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
         return
       }
       throw new Error(body.error || `HTTP ${res.status}`)
@@ -380,17 +406,239 @@ regenAudioBtn.addEventListener('click', async () => {
     const newHtml = await res.text()
     currentDeckId = res.headers.get('X-Deck-Id') || currentDeckId
     generatedHtml = newHtml
+    const wasScriptOpen = scriptOpen
     showResult(newHtml)
+    // showResult repinta la preview; el panel de guion sobrevive (el texto guardado
+    // sigue siendo el del servidor), solo se refrescan las marcas de slide muda.
+    if (wasScriptOpen) await openScriptPanel({ keepStatus: true })
 
     const warning = res.headers.get('X-Voice-Warning')
-    if (warning) showAudioStatus('warning', '⚠️ ' + warning)
-    else clearAudioStatus()
+    if (warning) setStatus('warning', '⚠️ ' + warning)
+    else setStatus('ok', ('Audio actualizado ✓ ' + describeSynth(res.headers.get('X-Audio-Synth'))).trim())
   } catch (err) {
-    showAudioStatus('error', err instanceof Error ? err.message : String(err))
+    setStatus('error', err instanceof Error ? err.message : String(err))
   } finally {
-    regenAudioBtn.disabled = false
+    setAudioButtonsDisabled(false)
+  }
+}
+
+function setAudioButtonsDisabled(on) {
+  regenAudioBtn.disabled = on
+  scriptRegenBtn.disabled = on
+  scriptSaveBtn.disabled = on || countDirty() === 0
+}
+
+/** "synthesized=2;reused=10;failed=0" → "(2 sintetizadas · 10 reutilizadas)". */
+function describeSynth(header) {
+  if (!header) return ''
+  const n = {}
+  header.split(';').forEach((p) => {
+    const [k, v] = p.split('=')
+    n[k] = Number(v) || 0
+  })
+  const parts = []
+  if (n.synthesized) parts.push(`${n.synthesized} sintetizada${n.synthesized === 1 ? '' : 's'}`)
+  if (n.reused) parts.push(`${n.reused} reutilizada${n.reused === 1 ? '' : 's'}`)
+  if (n.failed) parts.push(`${n.failed} fallida${n.failed === 1 ? '' : 's'}`)
+  return parts.length ? `(${parts.join(' · ')})` : ''
+}
+
+// --- Panel de guion de voz ---
+scriptToggleBtn.addEventListener('click', async () => {
+  if (scriptOpen) {
+    closeScriptPanel()
+    return
+  }
+  await openScriptPanel()
+})
+
+/**
+ * Carga el guion del deck desde el servidor y pinta una fila por slide.
+ * Reentrante: se vuelve a llamar tras regenerar audio para refrescar los avisos
+ * de slide muda (descarta las ediciones sin guardar, que ya se habrán guardado).
+ */
+async function openScriptPanel(opts) {
+  if (!currentDeckId) {
+    showScriptStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
+    return
+  }
+  scriptPanel.style.display = 'flex'
+  scriptOpen = true
+  scriptToggleBtn.classList.add('active')
+  if (!opts || !opts.keepStatus) showScriptStatus('loading', 'Cargando guion…')
+
+  try {
+    const res = await fetch(`/api/deck/${currentDeckId}/narrations`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      throw new Error(body.error || `HTTP ${res.status}`)
+    }
+    const { slides } = await res.json()
+    scriptBaseline = slides.map((s) => s.narration || '')
+    renderScriptList(slides)
+    // "Guardar y regenerar" solo tiene sentido con ElevenLabs configurado.
+    scriptRegenBtn.style.display = audioPanel._voiceConfigured ? 'inline-block' : 'none'
+    if (!opts || !opts.keepStatus) clearScriptStatus()
+  } catch (err) {
+    scriptList.innerHTML = ''
+    showScriptStatus('error', err instanceof Error ? err.message : String(err))
+  }
+}
+
+function closeScriptPanel() {
+  scriptOpen = false
+  scriptPanel.style.display = 'none'
+  scriptToggleBtn.classList.remove('active')
+  scriptList.innerHTML = ''
+  scriptBaseline = []
+  scriptDirtyEl.textContent = ''
+  scriptSaveBtn.disabled = true
+  clearScriptStatus()
+}
+
+function renderScriptList(slides) {
+  scriptList.innerHTML = slides
+    .map((s, i) => {
+      const label = s.label ? escHtml(s.label) : '<em style="color:#5a5a68">sin titular</em>'
+      const chip = s.slideClass ? `<span class="row-chip">${escHtml(s.slideClass)}</span>` : ''
+      const mute = s.hasAudio ? '' : '<span class="row-chip mute">sin audio</span>'
+      return (
+        `<div class="script-row" data-index="${i}">` +
+        `<div class="row-head">` +
+        `<span class="row-num">${String(i + 1).padStart(2, '0')}</span>` +
+        `<span class="row-label">${label}</span>${chip}${mute}` +
+        `<span class="row-spacer"></span>` +
+        `<span class="row-chars"></span>` +
+        `<button class="row-goto" type="button" data-goto="${i}">Ver slide</button>` +
+        `</div>` +
+        `<textarea data-index="${i}" spellcheck="false" rows="2" ` +
+        `placeholder="Sin narración — escribe aquí el texto que debe locutar esta slide">` +
+        `${escHtml(s.narration || '')}</textarea>` +
+        `</div>`
+      )
+    })
+    .join('')
+
+  scriptList.querySelectorAll('textarea').forEach((ta) => {
+    autoGrow(ta)
+    updateRowChars(ta)
+  })
+  updateDirtyUi()
+}
+
+scriptList.addEventListener('input', (e) => {
+  const ta = e.target.closest('textarea')
+  if (!ta) return
+  autoGrow(ta)
+  updateRowChars(ta)
+  ta.closest('.script-row').classList.toggle('is-dirty', isRowDirty(ta))
+  updateDirtyUi()
+})
+
+// "Ver slide": salta la preview a esa slide (hook __deckGo del deck).
+scriptList.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-goto]')
+  if (!btn) return
+  try {
+    preview.contentWindow.__deckGo(Number(btn.dataset.goto))
+  } catch {
+    // deck aún cargando o sin el hook (deck antiguo): no hay nada que hacer
   }
 })
+
+function autoGrow(ta) {
+  ta.style.height = 'auto'
+  ta.style.height = Math.min(240, Math.max(62, ta.scrollHeight + 2)) + 'px'
+}
+
+function updateRowChars(ta) {
+  const el = ta.closest('.script-row').querySelector('.row-chars')
+  const n = ta.value.trim().length
+  const over = n > NARRATION_MAX_CHARS
+  el.className = 'row-chars' + (over ? ' over' : '')
+  el.textContent = over ? `${n} car. · supera ${NARRATION_MAX_CHARS}: quedará muda` : `${n} car.`
+}
+
+function isRowDirty(ta) {
+  const i = Number(ta.dataset.index)
+  return ta.value.trim() !== (scriptBaseline[i] || '').trim()
+}
+
+function countDirty() {
+  let n = 0
+  scriptList.querySelectorAll('textarea').forEach((ta) => { if (isRowDirty(ta)) n++ })
+  return n
+}
+
+function updateDirtyUi() {
+  const n = countDirty()
+  scriptDirtyEl.textContent = n
+    ? `${n} slide${n === 1 ? '' : 's'} modificada${n === 1 ? '' : 's'}`
+    : ''
+  scriptSaveBtn.disabled = n === 0
+}
+
+/** Guarda el guion editado en el store del servidor. Devuelve true si fue bien. */
+async function saveNarrations() {
+  if (!currentDeckId) {
+    showScriptStatus('error', '⚠️ El deck ya no está en el servidor. Vuelve a generarlo.')
+    return false
+  }
+  const narrations = Array.from(scriptList.querySelectorAll('textarea')).map((ta) => ta.value.trim())
+  showScriptStatus('loading', 'Guardando guion…')
+
+  try {
+    const res = await fetch(`/api/deck/${currentDeckId}/narrations`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ narrations }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+      if (res.status === 404) currentDeckId = null
+      throw new Error(body.error || `HTTP ${res.status}`)
+    }
+    const { changed } = await res.json()
+    scriptBaseline = narrations
+    scriptList.querySelectorAll('.script-row').forEach((r) => r.classList.remove('is-dirty'))
+    updateDirtyUi()
+    showScriptStatus(
+      'ok',
+      changed
+        ? `Guion guardado ✓ · ${changed} slide${changed === 1 ? '' : 's'} cambiada${changed === 1 ? '' : 's'}`
+        : 'Guion guardado ✓',
+    )
+    return true
+  } catch (err) {
+    showScriptStatus('error', err instanceof Error ? err.message : String(err))
+    return false
+  }
+}
+
+scriptSaveBtn.addEventListener('click', () => saveNarrations())
+
+scriptRegenBtn.addEventListener('click', async () => {
+  const dirty = countDirty()
+  if (dirty && !(await saveNarrations())) return // no regenerar sobre un guion no guardado
+  await runAudioRegen(showScriptStatus)
+})
+
+function clearScriptStatus() {
+  scriptStatus.style.display = 'none'
+  scriptStatus.textContent = ''
+  scriptStatus.className = ''
+}
+
+function showScriptStatus(type, msg) {
+  scriptStatus.className = type
+  if (type === 'loading') {
+    scriptStatus.innerHTML = `<span class="spinner"></span><span></span>`
+    scriptStatus.lastChild.textContent = msg
+  } else {
+    scriptStatus.textContent = msg
+  }
+  scriptStatus.style.display = type === 'loading' ? 'flex' : 'block'
+}
 
 loadThemes()
 loadVoices()

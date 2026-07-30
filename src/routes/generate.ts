@@ -14,11 +14,43 @@ import {
   resolveUnsplashSlots,
   pickUnsplashPhoto,
 } from '../services/unsplash.js'
-import { synthesizeDeck, type DeckAudio } from '../services/tts.js'
+import {
+  synthesizeDeck,
+  voiceCacheKey,
+  type DeckAudio,
+  type SynthesizeOptions,
+} from '../services/tts.js'
 import { reviewDeck } from '../services/review.js'
-import { putDeck, getDeck, updateDeckSlides } from '../services/deck-store.js'
+import {
+  putDeck,
+  getDeck,
+  updateDeckSlides,
+  updateDeckNarrations,
+  setDeckAudio,
+  normNarration,
+} from '../services/deck-store.js'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
+
+/**
+ * Etiqueta corta de una slide para el panel "Guion": el primer titular de su html,
+ * sin marcado. Cadena vacía si la slide no tiene titular (la UI la numera igualmente).
+ */
+function slideLabel(html: string): string {
+  const m = html.match(/<(h1|h2|h3|h4)\b[^>]*>([\s\S]*?)<\/\1>/i)
+  if (!m) return ''
+  return m[2]!
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+}
 
 function isPdf(filename: string, mimetype: string): boolean {
   return mimetype === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')
@@ -225,13 +257,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       // TTS: solo si voice=on y hay API key. Los fallos son aislados: generamos
       // el deck sin audio en lugar de tumbar toda la petición.
       let audio: DeckAudio | undefined
+      const ttsOpts: SynthesizeOptions = {
+        ...(voiceIdOverride && { voiceId: voiceIdOverride }),
+        ...(modelIdOverride && { modelId: modelIdOverride }),
+      }
       if (voiceEnabled && process.env.ELEVENLABS_API_KEY) {
         try {
           const narrations = slides.slides.map((s) => s.narration)
-          audio = await synthesizeDeck(narrations, {
-            ...(voiceIdOverride && { voiceId: voiceIdOverride }),
-            ...(modelIdOverride && { modelId: modelIdOverride }),
-          })
+          audio = await synthesizeDeck(narrations, ttsOpts)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           console.warn('[tts] fallo general del servicio de voz:', msg)
@@ -242,7 +275,18 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const deckId = putDeck({ slides, themeName, images: deckImages })
+      // El audio se guarda junto al deck (con la narración y la voz que lo produjeron):
+      // al editar el guion, /api/audio solo re-sintetiza las slides que cambiaron.
+      const deckId = putDeck({
+        slides,
+        themeName,
+        images: deckImages,
+        ...(audio && {
+          audio,
+          audioKey: voiceCacheKey(ttsOpts),
+          audioNarrations: slides.slides.map((s) => normNarration(s.narration)),
+        }),
+      })
       reply.header('X-Deck-Id', deckId)
 
       html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled })
@@ -296,6 +340,74 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true, count: slides.length })
   })
 
+  /**
+   * Devuelve el guion de voz de un deck ya generado, slide a slide (panel "Guion").
+   *
+   * Params: id (deckId)
+   * Respuestas: 200 { slides: [{ index, label, slideClass, narration, hasAudio }] }
+   *             404 deck no encontrado
+   *
+   * `hasAudio` = esa slide tiene audio sintetizado en el store (la UI marca las mudas).
+   */
+  app.get('/api/deck/:id/narrations', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const ctx = getDeck(id)
+    if (!ctx) {
+      return reply
+        .status(404)
+        .send({ error: 'El deck ya no está disponible en el servidor. Vuelve a generarlo.' })
+    }
+
+    return reply.send({
+      slides: ctx.slides.slides.map((s, i) => ({
+        index: i,
+        label: slideLabel(s.html),
+        slideClass: s.slideClass ?? '',
+        narration: s.narration ?? '',
+        hasAudio: Boolean(ctx.audio?.[i]),
+      })),
+    })
+  })
+
+  /**
+   * Guarda el guion editado. No sintetiza nada: el audio se regenera aparte con
+   * POST /api/audio, que re-sintetiza solo las slides cuya narración haya cambiado.
+   *
+   * Params: id (deckId)
+   * Body JSON: { narrations: string[] } — una por slide, en orden ("" = slide sin narrar).
+   * Respuestas: 200 { ok, count, changed } | 400 body inválido o longitud no coincide
+   *             404 deck no encontrado
+   */
+  app.put('/api/deck/:id/narrations', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as { narrations?: unknown }
+    const narrations = body?.narrations
+
+    if (!Array.isArray(narrations) || !narrations.every((n) => typeof n === 'string')) {
+      return reply.status(400).send({ error: 'Body inválido: se espera { narrations: string[] }.' })
+    }
+
+    const ctx = getDeck(id)
+    if (!ctx) {
+      return reply
+        .status(404)
+        .send({ error: 'El deck ya no está disponible en el servidor. Vuelve a generarlo.' })
+    }
+
+    if (narrations.length !== ctx.slides.slides.length) {
+      return reply.status(400).send({
+        error: `Nº de slides no coincide (recibidas ${narrations.length}, esperadas ${ctx.slides.slides.length}).`,
+      })
+    }
+
+    const changed = ctx.slides.slides.reduce(
+      (n, s, i) => n + (normNarration(s.narration) === normNarration(narrations[i]) ? 0 : 1),
+      0,
+    )
+    updateDeckNarrations(id, narrations as string[])
+    return reply.send({ ok: true, count: narrations.length, changed })
+  })
+
   /** Estado de Unsplash: la UI decide si el editor ofrece regenerar/buscar fotos. */
   app.get('/api/unsplash', async (_req, reply) => {
     return reply.send({ configured: isUnsplashConfigured() })
@@ -340,9 +452,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Re-sintetiza el audio de un deck ya generado sin volver a llamar a Claude.
    *
+   * Solo se sintetizan las slides cuya narración haya cambiado desde el último audio
+   * (o que quedaran mudas por un fallo); el resto se reutiliza de la caché del deck-store.
+   * Cambiar de voz o de modelo invalida la caché entera → se sintetiza todo.
+   *
    * Body JSON: { deckId: string, voiceId?: string, subtitles?: boolean }
    * Response:  text/html (el deck con el nuevo audio embebido)
-   * Headers:   X-Deck-Id (mismo id, reutilizable), X-Voice-Warning (si hubo degradación)
+   * Headers:   X-Deck-Id (mismo id, reutilizable), X-Voice-Warning (si hubo degradación),
+   *            X-Audio-Synth ("synthesized=N;reused=M;failed=K")
    *
    * Errores:
    *   404  → deckId no encontrado (server reiniciado / expirado / id inválido)
@@ -385,12 +502,27 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(html)
     }
 
-    let audio: DeckAudio
+    const ttsOpts: SynthesizeOptions = {
+      ...(voiceId && { voiceId }),
+      ...(modelId && { modelId }),
+    }
+    const audioKey = voiceCacheKey(ttsOpts)
+
+    // Reutilizable = misma voz/modelo + misma narración + ya tenía audio. Las slides
+    // que quedaron mudas por un fallo NO se reutilizan: regenerar es su reintento.
+    const cache = ctx.audioKey === audioKey ? ctx.audio : undefined
+    const reused = narrations.map((n, i) => {
+      const prev = cache?.[i]
+      if (!prev) return null
+      return ctx.audioNarrations?.[i] === normNarration(n) ? prev : null
+    })
+    // `undefined` → synthesizeDeck se la salta (no gasta petición ni cuota).
+    const pending = narrations.map((n, i) => (reused[i] ? undefined : n))
+    const pendingCount = pending.filter((n) => normNarration(n)).length
+
+    let fresh: DeckAudio
     try {
-      audio = await synthesizeDeck(narrations, {
-        ...(voiceId && { voiceId }),
-        ...(modelId && { modelId }),
-      })
+      fresh = await synthesizeDeck(pending, ttsOpts)
     } catch (err) {
       if (isTransientApiError(err)) {
         return reply.status(503).send({
@@ -400,6 +532,9 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       const msg = err instanceof Error ? err.message : String(err)
       return reply.status(502).send({ error: `Error sintetizando audio: ${msg}` })
     }
+
+    const audio: DeckAudio = fresh.map((a, i) => a ?? reused[i] ?? null)
+    setDeckAudio(deckId, audio, audioKey, narrations.map(normNarration))
 
     const theme = await loadTheme(ctx.themeName).catch(async () => {
       const all = await listThemes()
@@ -411,11 +546,27 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       subtitles: subtitles !== false,
     })
 
+    const reusedCount = reused.filter((a) => a !== null).length
+    const failed = pending.filter((n, i) => normNarration(n) && !fresh[i]).length
+    reply.header(
+      'X-Audio-Synth',
+      `synthesized=${pendingCount - failed};reused=${reusedCount};failed=${failed}`,
+    )
+    console.log(
+      `[tts] regeneración deck=${deckId} sintetizadas=${pendingCount - failed} ` +
+        `reutilizadas=${reusedCount} fallidas=${failed}`,
+    )
+
     const allMute = audio.every((a) => a === null)
     if (allMute) {
       reply.header(
         'X-Voice-Warning',
         'Ninguna slide pudo sintetizarse. El deck se generó sin audio.',
+      )
+    } else if (failed > 0) {
+      reply.header(
+        'X-Voice-Warning',
+        `${failed} slide(s) no pudieron sintetizarse y quedaron mudas. Vuelve a intentarlo.`,
       )
     }
 
