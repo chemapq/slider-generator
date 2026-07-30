@@ -39,12 +39,19 @@ Busca:
 - Recorte/desbordamiento: contenido cortado por los bordes de 1280×720 o que se sale del área.
 - Solapes: elementos montados unos sobre otros que estorban la lectura.
 - Jerarquía o alineación claramente rotas.
+- Imágenes teñidas: alguna imagen (<img>, .imgbox img, o .media con foto) que tenga POR ENCIMA una
+  capa de color, un degradado o un panel semitransparente que la tiñe, apaga o recolorea. Las fotos
+  deben verse limpias y con color fiel, sin nada encima. (Un hueco de imagen SIN foto que solo
+  muestra un fondo de color de relleno cuenta como placeholder vacío: repórtalo, no inventes fotos.)
 
 Reglas de la corrección:
 - NO cambies el CONTENIDO textual: mismas palabras, cifras y orden. Solo ajustas estilo/estructura
   para que se lea y se vea bien.
 - Preserva "slideClass", los slots de imagen (data-img="ID", data-img-query, data-avatar), el campo
   de animación y las clases de componentes del sistema. No incrustes imágenes ni las elimines.
+- Si una imagen se ve teñida por un elemento DEL PROPIO HTML del slide (un div de overlay, un
+  degradado o un panel de color colocado ENCIMA de la imagen), quítalo o hazlo transparente para
+  que la foto se vea limpia. Preserva la imagen y su slot; quita solo la capa que la tiñe.
 - Usa tokens del tema: sobre fondo oscuro usa var(--primary-300) o #fff para el texto; sobre fondo
   claro usa var(--ink). Evita colores hex arbitrarios (blanco/negro puntual sí).
 - fixedHtml = SOLO el HTML interno del <section> (sin la etiqueta <section>), en el mismo formato

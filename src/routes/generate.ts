@@ -169,6 +169,15 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       // Resolver los slots data-img-query buscando y descargando fotos de
       // Unsplash. Los fallos son aislados: un slot sin foto queda con el
       // fondo degradado de fallback, nunca tumba la petición.
+      // DIAGNÓSTICO: por qué (no) hay fotos de Unsplash. Mira estas líneas en la consola.
+      const unsplashSlotCount = slides.slides.reduce(
+        (n, s) => n + (s.html.match(/data-img-query/g)?.length ?? 0),
+        0,
+      )
+      console.log(
+        `[unsplash] enabled=${unsplashEnabled} imgSubidas=${placeholders.length} ` +
+          `keyConfig=${isUnsplashConfigured()} slotsEnDeck=${unsplashSlotCount}`,
+      )
       if (unsplashEnabled) {
         try {
           const result = await resolveUnsplashSlots(
@@ -178,6 +187,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           slides.slides.forEach((s, i) => {
             s.html = result.htmls[i]!
           })
+          console.log(`[unsplash] resueltos=${result.resolved} fallidos=${result.failed}`)
           if (result.failed > 0 && result.resolved === 0) {
             reply.header(
               'X-Image-Warning',
