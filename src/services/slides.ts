@@ -8,8 +8,14 @@ type Slide = Slides['slides'][number]
 export interface DeckImages {
   /** id de imagen placeholder ("h1", "v2"…) → data URI. */
   placeholders: Map<string, string>
-  /** Avatar-tutor como data URI (si se subió). */
+  /** Avatar-tutor como data URI (subido por el usuario o retrato de Unsplash). */
   avatar?: string
+  /**
+   * Presente solo si el avatar es un retrato de Unsplash (no subido): la búsqueda y
+   * la foto concretas, para que el editor visual pueda regenerarlo y para acreditar
+   * al fotógrafo.
+   */
+  avatarPhoto?: { query: string; id: string; photographer: string }
 }
 
 function escapeAttr(s: string): string {
@@ -41,14 +47,28 @@ function escapeHtml(s: string): string {
  *    Id desconocido → deja el degradado de fallback (nunca se rompe).
  */
 function fillSlots(html: string, images: DeckImages): string {
+  // Retrato de Unsplash: se anota la búsqueda y la foto en el <img> del avatar para
+  // que el editor visual ofrezca "Regenerar foto" (data-img-query) trayendo una cara
+  // distinta (data-img-id se excluye), con orientación fija portrait. Son atributos
+  // inertes para fillSlots (sus regex exigen `data-img=`). title acredita al autor
+  // sin pisar el alt que pone el generador.
+  const avatarMeta = images.avatarPhoto
+    ? ` data-img-query="${escapeAttr(images.avatarPhoto.query)}"` +
+      ` data-img-id="${escapeAttr(images.avatarPhoto.id)}" data-img-orient="portrait"` +
+      ` title="${escapeAttr(`Foto de ${images.avatarPhoto.photographer} en Unsplash`)}"`
+    : ''
+
   // 1. Avatar: <img … data-avatar …>
   html = html.replace(/<img\b([^>]*)\bdata-avatar\b([^>]*)>/gi, (_match, before, after) => {
     if (!images.avatar) return ''
     const attrs = before + after
     if (/\bsrc\s*=\s*"/i.test(attrs)) {
-      return `<img${before}${after}>`.replace(/\bsrc\s*=\s*"[^"]*"/i, `src="${images.avatar}"`)
+      return `<img${before}${after}${avatarMeta}>`.replace(
+        /\bsrc\s*=\s*"[^"]*"/i,
+        `src="${images.avatar}"`,
+      )
     }
-    return `<img${before} src="${images.avatar}"${after}>`
+    return `<img${before} src="${images.avatar}"${after}${avatarMeta}>`
   })
 
   // 2. <img data-img="ID"> → inject src, strip data-img from the img tag

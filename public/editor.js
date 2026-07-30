@@ -481,7 +481,12 @@
     status.style.display = msg ? 'block' : 'none'
   }
 
+  // Orientación con la que buscar el reemplazo. data-img-orient manda cuando existe
+  // (el avatar-tutor lo lleva fijo a portrait: su hueco es un círculo, y por caja
+  // saldría 'landscape' y la cara quedaría mal recortada).
   function orientationOf(el) {
+    var hint = el.getAttribute('data-img-orient')
+    if (hint === 'portrait' || hint === 'landscape') return hint
     var r = el.getBoundingClientRect()
     return r.height > r.width ? 'portrait' : 'landscape'
   }

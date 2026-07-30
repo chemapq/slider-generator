@@ -107,6 +107,8 @@ El punto importante: para cuando el HTML llega a `renderSlides` / `fillSlots`
 isUnsplashConfigured(): boolean
 resolveUnsplashSlots(htmls: string[], placeholders: Map<string,string>): Promise<UnsplashResolution>
 pickUnsplashPhoto(query, orientation, excludeIds?): Promise<UnsplashPick | null>  // editor visual
+pickAvatarPhoto(excludeIds?): Promise<(UnsplashPick & { query }) | null>          // avatar-tutor
+avatarQuery(): string | null                                                     // query efectiva / null si "off"
 ```
 
 `resolveUnsplashSlots`:
@@ -242,7 +244,8 @@ recicla) y descarga la foto como data URI, registrando el `download_location`.
 
 ### Detalles del cliente (editor.js)
 
-- La **orientación** se deduce del aspecto del elemento en pantalla.
+- La **orientación** sale de `data-img-orient` si el elemento la lleva (el avatar-tutor
+  la fija a `portrait`); si no, se deduce del aspecto del elemento en pantalla.
 - Cada elemento acumula en memoria los ids ya mostrados (`WeakMap`) y lleva la
   foto actual en `data-img-id`; ambos van en `excludeIds`.
 - Al aplicar: se actualizan `src`/`background-image`, `data-img-query` (pasa a ser
@@ -253,3 +256,65 @@ recicla) y descarga la foto como data URI, registrando el `download_location`.
   (`p`/`m`/`c`/flechas) vía la guarda de captura en `window`; Enter lanza la búsqueda.
 - La persistencia es la del editor: al **Guardar**, el HTML con la foto horneada
   va al deck-store por `PUT /api/deck/:id/slides`.
+
+---
+
+## 11. Avatar-tutor desde Unsplash *(añadido 2026-07-30)*
+
+Si **no** se sube avatar (ni hay uno de HeyGen), el tutor de la bienvenida y el cierre
+sale de un **retrato de Unsplash**, en vez de generar el deck sin tutor.
+
+```
+¿avatar subido?  ── sí ──▶ se usa ese (comportamiento de siempre)
+       │
+       no
+       ▼
+¿UNSPLASH_ACCESS_KEY y UNSPLASH_AVATAR_QUERY ≠ "off"?
+       │                                    └── no ──▶ deck sin tutor
+       sí
+       ▼
+pickAvatarPhoto()  ──▶ GET /search/photos?orientation=portrait&content_filter=high
+                       query = UNSPLASH_AVATAR_QUERY | "friendly professional portrait person"
+```
+
+### Dónde encaja en el flujo
+
+La búsqueda se **lanza antes** de llamar a Claude y se **espera después**: corre en
+paralelo con la generación, así que no añade tiempo real a la petición. `hasAvatar` del
+prompt pasa a ser "habrá avatar" (subido **o** de Unsplash), de modo que Claude compone
+las slides `intro`/`outro` con la estructura `.tutor`. El retrato se resuelve **antes** de
+la revisión visual, así Claude revisa la cara real.
+
+Degradación (nunca tumba la generación): sin clave, con `"off"`, sin resultados o con la
+API caída, `pickAvatarPhoto()` devuelve `null` → `fillSlots` elimina el `<img data-avatar>`
+y `.tutor .photo` se queda con su degradado (`var(--grad)`), que es el fallback de siempre.
+
+### Atributos que recibe el `<img>` del avatar
+
+`fillSlots` (en `slides.ts`) anota el retrato para que sea **regenerable** como cualquier
+otra foto del deck:
+
+| Atributo | Para qué |
+| --- | --- |
+| `src` | el data URI del retrato |
+| `data-img-query` | hace aparecer "⟳ Regenerar foto" en el popover del editor |
+| `data-img-id` | la cara actual; va en `excludeIds` para que ⟳ traiga otra distinta |
+| `data-img-orient="portrait"` | el hueco es un círculo: por caja se deduciría `landscape` y la cara quedaría mal recortada |
+| `title` | atribución al fotógrafo (no se pisa el `alt` que escribe Claude) |
+
+Solo se añaden si el avatar viene de Unsplash (`DeckImages.avatarPhoto`); con avatar
+subido el `<img>` sale como antes. `data-avatar` lo consume el propio `fillSlots`, así
+que un re-render posterior (`/api/audio`) no pisa la cara que el usuario haya elegido
+en el editor.
+
+### Config
+
+```
+UNSPLASH_AVATAR_QUERY=          # vacío → "friendly professional portrait person"
+UNSPLASH_AVATAR_QUERY=off       # desactiva el avatar automático
+UNSPLASH_AVATAR_QUERY=profesora sonriente en aula
+```
+
+`GET /api/unsplash` devuelve además `avatar: boolean` (clave presente y query ≠ "off");
+la UI lo usa para anunciarlo en la zona de avatar: *"intro y cierre · sin él, retrato de
+Unsplash"*.

@@ -13,6 +13,8 @@ import {
   isUnsplashConfigured,
   resolveUnsplashSlots,
   pickUnsplashPhoto,
+  pickAvatarPhoto,
+  avatarQuery,
 } from '../services/unsplash.js'
 import {
   synthesizeDeck,
@@ -176,6 +178,13 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     // data-img-query y se resuelven aquí con fotos reales.
     const unsplashEnabled = placeholders.length === 0 && isUnsplashConfigured()
 
+    // Sin avatar subido (ni de HeyGen) → el tutor sale de un retrato de Unsplash, para
+    // que la bienvenida y el cierre sigan teniendo cara. La búsqueda se lanza AHORA y se
+    // espera después de Claude: así corre en paralelo con la generación (coste 0 en
+    // tiempo real). Nunca lanza; null → deck sin tutor, como hasta ahora.
+    const avatarPromise = avatarUri === undefined ? pickAvatarPhoto() : null
+    const willHaveAvatar = avatarUri !== undefined || avatarPromise !== null
+
     // El tema aporta el contrato de tokens base (colores, tipografía, componentes).
     // Si hay imágenes de referencia, NO se deriva un tema de ellas: se pasan tal cual
     // al generador como guía de diseño (modo libre), y Claude compone parecido a ellas.
@@ -191,12 +200,26 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         pdfBase64: pdfBuffer.toString('base64'),
         theme,
         imageManifest: placeholders.map((p) => ({ id: p.id, orientation: p.orientation })),
-        hasAvatar: avatarUri !== undefined,
+        hasAvatar: willHaveAvatar,
         // Con referencias, se reenvían al generador para que Claude imite su estilo y
         // layout (modo libre). Sin referencias, el array va vacío (modo estricto).
         referenceImages,
         unsplashEnabled,
       })
+
+      // Retrato del avatar-tutor (búsqueda lanzada antes de Claude). Se resuelve antes
+      // de la revisión visual para que Claude vea la cara real al revisar.
+      if (avatarPromise) {
+        const pick = await avatarPromise
+        if (pick) {
+          deckImages.avatar = pick.dataUri
+          deckImages.avatarPhoto = {
+            query: pick.query,
+            id: pick.id,
+            photographer: pick.photographer,
+          }
+        }
+      }
 
       // Resolver los slots data-img-query buscando y descargando fotos de
       // Unsplash. Los fallos son aislados: un slot sin foto queda con el
@@ -208,7 +231,8 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       )
       console.log(
         `[unsplash] enabled=${unsplashEnabled} imgSubidas=${placeholders.length} ` +
-          `keyConfig=${isUnsplashConfigured()} slotsEnDeck=${unsplashSlotCount}`,
+          `keyConfig=${isUnsplashConfigured()} slotsEnDeck=${unsplashSlotCount} ` +
+          `avatar=${avatarUri ? 'subido' : deckImages.avatar ? 'unsplash' : 'sin avatar'}`,
       )
       if (unsplashEnabled) {
         try {
@@ -408,9 +432,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true, count: narrations.length, changed })
   })
 
-  /** Estado de Unsplash: la UI decide si el editor ofrece regenerar/buscar fotos. */
+  /**
+   * Estado de Unsplash: la UI decide si el editor ofrece regenerar/buscar fotos.
+   * `avatar` = sin avatar subido se usará un retrato de Unsplash (la UI lo anuncia
+   * en la zona de avatar); false si UNSPLASH_AVATAR_QUERY está en "off".
+   */
   app.get('/api/unsplash', async (_req, reply) => {
-    return reply.send({ configured: isUnsplashConfigured() })
+    const configured = isUnsplashConfigured()
+    return reply.send({ configured, avatar: configured && avatarQuery() !== null })
   })
 
   /**

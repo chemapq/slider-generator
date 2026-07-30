@@ -230,6 +230,50 @@ export interface UnsplashPick {
 }
 
 /**
+ * Búsqueda del retrato del avatar-tutor cuando el usuario no sube ninguno.
+ * `UNSPLASH_AVATAR_QUERY` la sobreescribe; ponerla a "off" desactiva el avatar
+ * automático (el deck se genera entonces sin tutor).
+ */
+const DEFAULT_AVATAR_QUERY = 'friendly professional portrait person'
+
+/** Query efectiva del retrato, o null si el avatar automático está desactivado. */
+export function avatarQuery(): string | null {
+  const raw = (process.env.UNSPLASH_AVATAR_QUERY ?? '').trim()
+  if (/^(off|none|no)$/i.test(raw)) return null
+  return raw || DEFAULT_AVATAR_QUERY
+}
+
+/**
+ * Retrato para el avatar-tutor. Se usa cuando NO se ha subido avatar (ni hay uno
+ * de HeyGen): así las slides de bienvenida y cierre siguen teniendo tutor.
+ *
+ * Nunca lanza: sin clave, con el avatar automático desactivado o si la búsqueda
+ * falla devuelve null y el deck se genera sin foto de tutor (`.tutor .photo` se
+ * queda con su degradado). Orientación `portrait`: es lo que encaja en el círculo
+ * del avatar (`object-position: 50% 18%` recorta a la altura de la cara).
+ */
+export async function pickAvatarPhoto(
+  excludeIds: readonly string[] = [],
+): Promise<(UnsplashPick & { query: string }) | null> {
+  if (!isUnsplashConfigured()) return null
+  const query = avatarQuery()
+  if (!query) return null
+
+  try {
+    const pick = await pickUnsplashPhoto(query, 'portrait', excludeIds)
+    if (!pick) {
+      console.warn(`[unsplash] sin resultados de retrato para el avatar ("${query}").`)
+      return null
+    }
+    return { ...pick, query }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[unsplash] fallo obteniendo el retrato del avatar-tutor:', msg)
+    return null
+  }
+}
+
+/**
  * Busca y descarga UNA foto para el editor visual (regenerar/reemplazar una
  * imagen concreta del deck). Elige al azar entre los resultados no excluidos
  * para que "regenerar" traiga variedad; si todos están excluidos (el usuario

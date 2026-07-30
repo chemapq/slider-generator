@@ -73,8 +73,10 @@ async function loadUnsplashStatus() {
   try {
     const res = await fetch('/api/unsplash')
     if (!res.ok) return
-    const { configured } = await res.json()
+    const { configured, avatar } = await res.json()
     unsplashConfigured = Boolean(configured)
+    // Sin avatar subido se usa un retrato de Unsplash: se anuncia en la zona de avatar.
+    if (avatar) $('avatar-hint').textContent = 'intro y cierre · sin él, retrato de Unsplash'
   } catch {
     // sin Unsplash → el popover de imagen solo ofrece archivo local / quitar
   }
