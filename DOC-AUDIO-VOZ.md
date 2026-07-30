@@ -184,6 +184,21 @@ narraciones vacías → ni petición ni cuota. La respuesta lleva
 Una slide que falló queda `null` (muda) y **no** se reutiliza: volver a pulsar *Regenerar audio*
 es su reintento. El aviso va en `X-Voice-Warning`.
 
+### La voz del deck manda
+
+Un deck tiene UNA voz: si al regenerar una slide se usara otra, el resto del audio no se
+podría reutilizar y el deck acabaría con dos voces. Por eso:
+
+- El `deck-store` guarda `audioVoiceId` / `audioModelId` (ya resueltos por `resolveVoice`)
+  junto al audio, y `/api/audio` los usa **cuando el body no trae voz** — antes caía al
+  default del entorno, así que regenerar tras editar una slide podía cambiar la voz del
+  deck entero sin querer (y pagar todas las slides).
+- La respuesta lleva `X-Audio-Voice` / `X-Audio-Model` (también en `/api/generate`), y la UI
+  deja el selector de *Regenerar audio* en esa voz. Si la voz ya no está en
+  `ELEVENLABS_VOICES` se le añade una opción "Voz del deck (…)" para no perderla.
+- Solo un **cambio explícito del usuario** en el selector cambia la voz; entonces se avisa
+  en el panel de que se sintetizarán TODAS las slides, no solo las editadas.
+
 ---
 
 ## Archivos implicados

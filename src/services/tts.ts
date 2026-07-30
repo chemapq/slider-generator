@@ -53,17 +53,35 @@ export interface SynthesizeOptions {
   outputFormat?: string
 }
 
+/** Configuración de voz efectiva: lo pedido, con los defaults del entorno resueltos. */
+export interface ResolvedVoice {
+  voiceId: string
+  modelId: string
+  outputFormat: string
+}
+
+/**
+ * Resuelve voz/modelo/formato aplicando los defaults del entorno. Se guarda junto al
+ * audio del deck para poder (a) reutilizar la misma voz al regenerar y (b) mostrarla
+ * seleccionada en la UI.
+ */
+export function resolveVoice(opts: SynthesizeOptions = {}): ResolvedVoice {
+  return {
+    voiceId: opts.voiceId || process.env.ELEVENLABS_VOICE_ID || '',
+    modelId: opts.modelId || DEFAULT_MODEL,
+    outputFormat: opts.outputFormat || DEFAULT_OUTPUT_FORMAT,
+  }
+}
+
 /**
  * Identidad de la configuración de voz con la que se sintetizó un audio. Si cambia,
  * la caché por slide del deck-store deja de servir (hay que re-sintetizar todo).
- * Resuelve los defaults del entorno para que "voz por defecto" y su id explícito
+ * Va por los valores YA resueltos para que "voz por defecto" y su id explícito
  * cuenten como la MISMA voz (si no, cambiar de panel invalidaría la caché en falso).
  */
 export function voiceCacheKey(opts: SynthesizeOptions = {}): string {
-  const voice = opts.voiceId || process.env.ELEVENLABS_VOICE_ID || ''
-  const model = opts.modelId || DEFAULT_MODEL
-  const format = opts.outputFormat || DEFAULT_OUTPUT_FORMAT
-  return `${voice}|${model}|${format}`
+  const v = resolveVoice(opts)
+  return `${v.voiceId}|${v.modelId}|${v.outputFormat}`
 }
 
 // ── Tipos internos de la respuesta de ElevenLabs ───────────────────────────────

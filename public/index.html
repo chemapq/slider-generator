@@ -164,6 +164,11 @@
     }
     button#regen-audio-btn:hover:not(:disabled) { background: #203830; }
     button#regen-audio-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* Aviso: la voz elegida no es la del deck → regenerar rehace todas las slides */
+    #voice-mismatch {
+      display: none; font-size: 0.78rem; color: #ffa940; line-height: 1.45;
+      background: #2a2218; border: 1px solid #3a3020; border-radius: 8px; padding: 0.5rem 0.7rem;
+    }
     #audio-status, #script-status { font-size: 0.8rem; display: none; }
     #audio-status.loading, #script-status.loading { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); }
     #audio-status.error,   #script-status.error   { display: block; color: #ff7a7a; }
@@ -433,6 +438,7 @@
           </label>
           <button id="regen-audio-btn">Regenerar audio</button>
         </div>
+        <p id="voice-mismatch"></p>
         <div id="audio-status"></div>
       </div>
     </div>

@@ -16,17 +16,28 @@ import type { Slides } from '../config/schema.js'
 import type { DeckImages } from './slides.js'
 import type { DeckAudio } from './tts.js'
 
-export interface DeckContext {
+/** Todo lo que hay que recordar del último audio sintetizado de un deck. */
+export interface DeckAudioState {
+  /** Audio alineado por índice con `slides.slides`. */
+  audio: DeckAudio
+  /** Voz+modelo+formato con los que se sintetizó (ver `voiceCacheKey`). */
+  audioKey: string
+  /** Narración normalizada que produjo cada entrada de `audio`. */
+  audioNarrations: string[]
+  /**
+   * Voz y modelo ya resueltos. `audioKey` los compara; estos se exponen a la UI para
+   * que el selector muestre la voz DEL DECK y regenerar una slide no cambie la voz
+   * del resto sin querer.
+   */
+  audioVoiceId: string
+  audioModelId: string
+}
+
+export interface DeckContext extends Partial<DeckAudioState> {
   slides: Slides
   themeName: string
   images: DeckImages
   createdAt: number
-  /** Último audio sintetizado, alineado por índice con `slides.slides`. */
-  audio?: DeckAudio
-  /** Voz+modelo+formato con los que se sintetizó `audio` (ver `voiceCacheKey`). */
-  audioKey?: string
-  /** Narración normalizada que produjo cada entrada de `audio`. */
-  audioNarrations?: string[]
 }
 
 /** Narración lista para comparar: la caché de audio ignora espacios de borde. */
@@ -92,15 +103,8 @@ export function updateDeckNarrations(id: string, narrations: string[]): boolean 
 }
 
 /** Guarda el audio recién sintetizado como base de la próxima regeneración parcial. */
-export function setDeckAudio(
-  id: string,
-  audio: DeckAudio,
-  audioKey: string,
-  audioNarrations: string[],
-): void {
+export function setDeckAudio(id: string, state: DeckAudioState): void {
   const ctx = getDeck(id)
   if (!ctx) return
-  ctx.audio = audio
-  ctx.audioKey = audioKey
-  ctx.audioNarrations = audioNarrations
+  Object.assign(ctx, state)
 }

@@ -16,6 +16,13 @@ let unsplashConfigured = false
 // para detectar cambios) + si el panel está abierto.
 let scriptBaseline = []
 let scriptOpen = false
+// Voz y modelo con los que está hecho el audio del deck actual (los reporta el servidor
+// en X-Audio-Voice/X-Audio-Model). El selector de regenerar se mantiene en esta voz: así
+// regenerar una slide editada no cambia la voz del resto. Solo el usuario la cambia.
+let deckVoiceId = null
+let deckModelId = null
+// Solo hay "voz del deck" que respetar si el deck tiene audio sintetizado.
+let deckHasAudio = false
 
 const $ = (id) => document.getElementById(id)
 
@@ -47,6 +54,7 @@ const scriptStatus   = $('script-status')
 const scriptDirtyEl  = $('script-dirty')
 const scriptSaveBtn  = $('script-save-btn')
 const scriptRegenBtn = $('script-regen-btn')
+const voiceMismatch  = $('voice-mismatch')
 
 // Límite por narración en ElevenLabs (src/services/tts.ts: MAX_CHARS). Pasarse deja la
 // slide muda, así que el panel avisa antes de gastar la petición.
@@ -213,6 +221,7 @@ generateBtn.addEventListener('click', async () => {
     }
     generatedHtml = await res.text()
     currentDeckId = res.headers.get('X-Deck-Id')
+    setDeckVoice(res.headers.get('X-Audio-Voice'), res.headers.get('X-Audio-Model'))
     showResult(generatedHtml)
     showAudioPanel()
     const warning = res.headers.get('X-Voice-Warning') || res.headers.get('X-Image-Warning')
@@ -332,6 +341,10 @@ function hideResult() {
   preview.src = 'about:blank'
   generatedHtml = null
   currentDeckId = null
+  deckVoiceId = null
+  deckModelId = null
+  deckHasAudio = false
+  voiceMismatch.style.display = 'none'
   audioPanel.style.display = 'none'
   clearAudioStatus()
   if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null }
@@ -407,6 +420,8 @@ async function runAudioRegen(setStatus) {
 
     const newHtml = await res.text()
     currentDeckId = res.headers.get('X-Deck-Id') || currentDeckId
+    // La voz del deck pasa a ser la usada en esta regeneración (y el aviso se apaga).
+    setDeckVoice(res.headers.get('X-Audio-Voice'), res.headers.get('X-Audio-Model'))
     generatedHtml = newHtml
     const wasScriptOpen = scriptOpen
     showResult(newHtml)
@@ -423,6 +438,60 @@ async function runAudioRegen(setStatus) {
     setAudioButtonsDisabled(false)
   }
 }
+
+// --- Voz del deck ---
+// El audio de un deck está hecho con UNA voz. Regenerar tras editar una slide debe
+// seguir usando esa voz (si no, el servidor no puede reutilizar el resto del audio y
+// el deck acabaría con dos voces distintas), así que el selector se mantiene en ella
+// y solo cambia si el usuario elige otra a mano.
+
+/** Añade una opción al selector si ese valor no está ya entre las suyas. */
+function ensureOption(select, value, label) {
+  if (!value) return
+  if (Array.from(select.options).some((o) => o.value === value)) return
+  const opt = document.createElement('option')
+  opt.value = value
+  opt.textContent = label
+  select.appendChild(opt)
+}
+
+/**
+ * Registra la voz/modelo con los que quedó el audio del deck (cabeceras X-Audio-Voice
+ * y X-Audio-Model) y los deja seleccionados en el panel de regenerar. Sin cabeceras
+ * (deck generado sin narración) se conserva lo elegido en el panel de generación.
+ */
+function setDeckVoice(voiceId, modelId) {
+  deckHasAudio = Boolean(voiceId)
+  deckVoiceId = voiceId || genVoiceSelect.value || null
+  deckModelId = modelId || modelSelect.value || null
+
+  // Una voz que ya no esté en ELEVENLABS_VOICES sigue siendo la del deck: se añade al
+  // selector para no perderla (si no, quedaría en blanco y regeneraría con otra voz).
+  if (deckVoiceId) {
+    ensureOption(regenVoiceSelect, deckVoiceId, `Voz del deck (${deckVoiceId.slice(0, 8)}…)`)
+    regenVoiceSelect.value = deckVoiceId
+  }
+  if (deckModelId) {
+    ensureOption(modelSelect, deckModelId, `Modelo del deck (${deckModelId})`)
+    modelSelect.value = deckModelId
+  }
+  updateVoiceMismatch()
+}
+
+/** Avisa de que regenerar con otra voz rehace TODAS las slides, no solo las editadas. */
+function updateVoiceMismatch() {
+  const changed =
+    deckHasAudio &&
+    (regenVoiceSelect.value !== deckVoiceId || modelSelect.value !== deckModelId)
+  voiceMismatch.textContent = changed
+    ? '⚠️ Voz o modelo distintos a los del audio actual: al regenerar se sintetizarán ' +
+      'TODAS las slides, no solo las que hayas editado.'
+    : ''
+  voiceMismatch.style.display = changed ? 'block' : 'none'
+}
+
+regenVoiceSelect.addEventListener('change', updateVoiceMismatch)
+modelSelect.addEventListener('change', updateVoiceMismatch)
 
 function setAudioButtonsDisabled(on) {
   regenAudioBtn.disabled = on

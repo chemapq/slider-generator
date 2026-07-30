@@ -19,6 +19,7 @@ import {
 import {
   synthesizeDeck,
   voiceCacheKey,
+  resolveVoice,
   type DeckAudio,
   type SynthesizeOptions,
 } from '../services/tts.js'
@@ -300,7 +301,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // El audio se guarda junto al deck (con la narración y la voz que lo produjeron):
-      // al editar el guion, /api/audio solo re-sintetiza las slides que cambiaron.
+      // al editar el guion, /api/audio solo re-sintetiza las slides que cambiaron, y con
+      // ESTA misma voz. X-Audio-Voice/Model se lo dicen a la UI para que el selector de
+      // regenerar salga con la voz del deck ya elegida.
+      const voice = resolveVoice(ttsOpts)
       const deckId = putDeck({
         slides,
         themeName,
@@ -309,9 +313,15 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           audio,
           audioKey: voiceCacheKey(ttsOpts),
           audioNarrations: slides.slides.map((s) => normNarration(s.narration)),
+          audioVoiceId: voice.voiceId,
+          audioModelId: voice.modelId,
         }),
       })
       reply.header('X-Deck-Id', deckId)
+      if (audio) {
+        reply.header('X-Audio-Voice', voice.voiceId)
+        reply.header('X-Audio-Model', voice.modelId)
+      }
 
       html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled })
     } catch (err: unknown) {
@@ -485,10 +495,15 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    * (o que quedaran mudas por un fallo); el resto se reutiliza de la caché del deck-store.
    * Cambiar de voz o de modelo invalida la caché entera → se sintetiza todo.
    *
+   * Sin `voiceId`/`modelId` en el body se usa la VOZ DEL DECK (la del último audio), no
+   * el default del entorno: regenerar una slide no debe cambiar la voz de las demás.
+   * Solo un cambio explícito del usuario en la UI cambia la voz.
+   *
    * Body JSON: { deckId: string, voiceId?: string, subtitles?: boolean }
    * Response:  text/html (el deck con el nuevo audio embebido)
    * Headers:   X-Deck-Id (mismo id, reutilizable), X-Voice-Warning (si hubo degradación),
-   *            X-Audio-Synth ("synthesized=N;reused=M;failed=K")
+   *            X-Audio-Synth ("synthesized=N;reused=M;failed=K"),
+   *            X-Audio-Voice / X-Audio-Model (voz y modelo con los que quedó el deck)
    *
    * Errores:
    *   404  → deckId no encontrado (server reiniciado / expirado / id inválido)
@@ -531,11 +546,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(html)
     }
 
+    // Sin voz explícita del cliente se hereda la del deck: así regenerar tras editar una
+    // slide reutiliza el resto del audio en vez de rehacerlo con otra voz.
     const ttsOpts: SynthesizeOptions = {
-      ...(voiceId && { voiceId }),
-      ...(modelId && { modelId }),
+      ...((voiceId || ctx.audioVoiceId) && { voiceId: voiceId || ctx.audioVoiceId! }),
+      ...((modelId || ctx.audioModelId) && { modelId: modelId || ctx.audioModelId! }),
     }
     const audioKey = voiceCacheKey(ttsOpts)
+    const voice = resolveVoice(ttsOpts)
 
     // Reutilizable = misma voz/modelo + misma narración + ya tenía audio. Las slides
     // que quedaron mudas por un fallo NO se reutilizan: regenerar es su reintento.
@@ -563,7 +581,13 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const audio: DeckAudio = fresh.map((a, i) => a ?? reused[i] ?? null)
-    setDeckAudio(deckId, audio, audioKey, narrations.map(normNarration))
+    setDeckAudio(deckId, {
+      audio,
+      audioKey,
+      audioNarrations: narrations.map(normNarration),
+      audioVoiceId: voice.voiceId,
+      audioModelId: voice.modelId,
+    })
 
     const theme = await loadTheme(ctx.themeName).catch(async () => {
       const all = await listThemes()
@@ -581,9 +605,12 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       'X-Audio-Synth',
       `synthesized=${pendingCount - failed};reused=${reusedCount};failed=${failed}`,
     )
+    reply.header('X-Audio-Voice', voice.voiceId)
+    reply.header('X-Audio-Model', voice.modelId)
     console.log(
       `[tts] regeneración deck=${deckId} sintetizadas=${pendingCount - failed} ` +
-        `reutilizadas=${reusedCount} fallidas=${failed}`,
+        `reutilizadas=${reusedCount} fallidas=${failed} voz=${voice.voiceId}` +
+        `${voiceId ? '' : ' (heredada del deck)'}`,
     )
 
     const allMute = audio.every((a) => a === null)
