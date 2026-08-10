@@ -2,6 +2,7 @@ import type { Slides } from '../config/schema.js'
 import type { Theme } from '../config/theme-schema.js'
 import { renderDeck, renderSlideStandalone } from '../templates/deck.js'
 import type { DeckAudio } from './tts.js'
+import type { SlideVideo } from './heygen.js'
 
 type Slide = Slides['slides'][number]
 
@@ -37,7 +38,9 @@ function escapeHtml(s: string): string {
  * Rellena los slots que dejó Claude:
  *
  * 1. `<img data-avatar …>` → inyecta `src` (avatar-tutor dentro de `.tutor .photo`).
- *    Sin avatar → quita el <img> para no mostrar icono roto.
+ *    Sin avatar → quita el <img> para no mostrar icono roto. Si se pasa `introVideo`,
+ *    sustituye el `<img>` por un `<video data-avatar-video>` con el mp4 embebido (el
+ *    avatar habla con lip-sync en vez de mostrar la foto fija).
  *
  * 2. `<img data-img="ID" …>` → inyecta `src` con el data URI del placeholder.
  *    (Patrón preferido: `.imgbox > <img data-img="ID">`)
@@ -46,7 +49,7 @@ function escapeHtml(s: string): string {
  *    `style="background-image:url(…)"` para mostrar la imagen como fondo.
  *    Id desconocido → deja el degradado de fallback (nunca se rompe).
  */
-function fillSlots(html: string, images: DeckImages): string {
+function fillSlots(html: string, images: DeckImages, introVideo?: SlideVideo | null): string {
   // Retrato de Unsplash: se anota la búsqueda y la foto en el <img> del avatar para
   // que el editor visual ofrezca "Regenerar foto" (data-img-query) trayendo una cara
   // distinta (data-img-id se excluye), con orientación fija portrait. Son atributos
@@ -60,6 +63,13 @@ function fillSlots(html: string, images: DeckImages): string {
 
   // 1. Avatar: <img … data-avatar …>
   html = html.replace(/<img\b([^>]*)\bdata-avatar\b([^>]*)>/gi, (_match, before, after) => {
+    if (introVideo) {
+      return (
+        `<video data-avatar-video preload="auto" playsinline` +
+        `${images.avatar ? ` poster="${images.avatar}"` : ''}` +
+        ` src="data:${introVideo.mime};base64,${introVideo.videoBase64}"></video>`
+      )
+    }
     if (!images.avatar) return ''
     const attrs = before + after
     if (/\bsrc\s*=\s*"/i.test(attrs)) {
@@ -109,13 +119,18 @@ export function renderSlides(
   images?: DeckImages,
   audio?: DeckAudio,
   opts?: { subtitles?: boolean },
+  introVideo?: SlideVideo | null,
 ): string {
   const imgs: DeckImages = images ?? { placeholders: new Map() }
 
+  // El vídeo de avatar (si lo hay) va SOLO en la primera slide con el slot `data-avatar`
+  // (la intro), por contrato del prompt. El resto (p.ej. el cierre) conserva la foto.
+  const introIndex = introVideo ? data.slides.findIndex((s) => /\bdata-avatar\b/.test(s.html)) : -1
+
   const sections = data.slides
-    .map((slide) => {
+    .map((slide, i) => {
       const cls = `slide${slide.slideClass ? ` ${escapeAttr(slide.slideClass)}` : ''}`
-      const body = fillSlots(slide.html, imgs)
+      const body = fillSlots(slide.html, imgs, i === introIndex ? introVideo : undefined)
       const notes = slide.notes
         ? `\n      <aside class="notes">${escapeHtml(slide.notes)}</aside>`
         : ''
@@ -130,7 +145,7 @@ export function renderSlides(
     })
     .join('\n')
 
-  const audioScript = buildAudioScript(audio, opts)
+  const audioScript = buildAudioScript(audio, opts, introIndex)
   return renderDeck({ title: data.title, css: theme.css, slides: sections, audioScript })
 }
 
@@ -138,17 +153,24 @@ export function renderSlides(
  * Construye el <script> con window.__DECK_AUDIO__ y window.__DECK_OPTS__.
  * Devuelve undefined cuando no hay audio → deck sin motor de voz.
  *
+ * `videoSlideIndex` (si ≥ 0): esa slide reproduce el audio DENTRO del `<video>` de su
+ * avatar, así que su entrada de `__DECK_AUDIO__` lleva `src:null` (los `cues` sí se
+ * conservan, para los subtítulos) — invariante: nunca doble audio en la misma slide.
+ *
  * Escapa `</` → `<\/` para evitar que cadenas en el JSON cierren el <script>.
  */
 function buildAudioScript(
   audio: DeckAudio | undefined,
   opts?: { subtitles?: boolean },
+  videoSlideIndex = -1,
 ): string | undefined {
   if (!audio) return undefined
 
-  const audioData = audio.map((a) =>
-    a === null ? null : { src: `data:${a.mime};base64,${a.audioBase64}`, cues: a.cues },
-  )
+  const audioData = audio.map((a, i) => {
+    if (a === null) return null
+    if (i === videoSlideIndex) return { src: null, cues: a.cues }
+    return { src: `data:${a.mime};base64,${a.audioBase64}`, cues: a.cues }
+  })
 
   // Escapar </ para que el parser HTML no cierre el <script> prematuramente.
   const audioJson = JSON.stringify(audioData).replace(/<\//g, '<\\/')

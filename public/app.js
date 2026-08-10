@@ -9,6 +9,8 @@ let generatedHtml = null
 let blobUrl = null
 let voiceEnabled = false
 let subtitlesEnabled = true
+let avatarVideoEnabled = false
+let heygenConfigured = false
 let currentDeckId = null
 let editing = false
 let unsplashConfigured = false
@@ -37,6 +39,11 @@ const downloadBtn = $('download-btn')
 const chkVoice       = $('chk-voice')
 const chkSubs        = $('chk-subs')
 const voiceConfig    = $('voice-config')
+const chkAvatarVideo = $('chk-avatar-video')
+const avatarVideoRow = $('avatar-video-row')
+const avatarVideoHint = $('avatar-video-hint')
+const regenAvatarVideo = $('regen-avatar-video')
+const regenAvatarVideoRow = $('regen-avatar-video-row')
 const genVoiceSelect = $('gen-voice-select')
 const modelSelect    = $('model-select')
 const audioPanel     = $('audio-panel')
@@ -74,6 +81,33 @@ async function loadVoices() {
   } catch {
     // sin voces configuradas → panel post-gen permanece oculto
   }
+}
+
+// --- Estado de HeyGen (habilita el checkbox "Avatar en vídeo") ---
+async function loadHeygenStatus() {
+  try {
+    const res = await fetch('/api/heygen')
+    if (!res.ok) return
+    const { configured } = await res.json()
+    heygenConfigured = Boolean(configured)
+    updateAvatarVideoAvailability()
+  } catch {
+    // sin HeyGen configurado → el checkbox queda deshabilitado
+  }
+}
+
+/** El checkbox solo se puede marcar si voz está activada Y HeyGen está configurado. */
+function updateAvatarVideoAvailability() {
+  const available = heygenConfigured && voiceEnabled
+  chkAvatarVideo.disabled = !available
+  if (!available) { chkAvatarVideo.checked = false; avatarVideoEnabled = false }
+  avatarVideoRow.classList.toggle('disabled', !available)
+  avatarVideoHint.textContent = !heygenConfigured
+    ? '· requiere HEYGEN_API_KEY/HEYGEN_AVATAR_ID en el servidor'
+    : !voiceEnabled
+      ? '· requiere narración por voz activada'
+      : '· la intro habla con lip-sync'
+  regenAvatarVideoRow.style.display = heygenConfigured ? 'flex' : 'none'
 }
 
 // --- Estado de Unsplash (habilita regenerar/buscar fotos en el editor) ---
@@ -176,8 +210,10 @@ wireZone('dz-refs', 'in-refs', { multiple: true }, (files, zone) => {
 chkVoice.addEventListener('change', () => {
   voiceEnabled = chkVoice.checked
   voiceConfig.style.display = voiceEnabled ? 'flex' : 'none'
+  updateAvatarVideoAvailability()
 })
 chkSubs.addEventListener('change', () => { subtitlesEnabled = chkSubs.checked })
+chkAvatarVideo.addEventListener('change', () => { avatarVideoEnabled = chkAvatarVideo.checked })
 
 // Con referencias de estilo, ELLAS definen el tema: ocultamos el desplegable.
 function updateThemeSource() {
@@ -210,6 +246,7 @@ generateBtn.addEventListener('click', async () => {
     form.append('voice', 'on')
     if (genVoiceSelect.value) form.append('voiceId', genVoiceSelect.value)
     if (modelSelect.value) form.append('modelId', modelSelect.value)
+    if (avatarVideoEnabled) form.append('avatarVideo', 'on')
   }
   form.append('subtitles', subtitlesEnabled ? 'on' : 'off')
 
@@ -224,7 +261,7 @@ generateBtn.addEventListener('click', async () => {
     setDeckVoice(res.headers.get('X-Audio-Voice'), res.headers.get('X-Audio-Model'))
     showResult(generatedHtml)
     showAudioPanel()
-    const warning = res.headers.get('X-Voice-Warning') || res.headers.get('X-Image-Warning')
+    const warning = res.headers.get('X-Voice-Warning') || res.headers.get('X-Image-Warning') || res.headers.get('X-Avatar-Warning')
     if (warning) showStatus('warning', '⚠️ ' + warning)
     else clearStatus()
   } catch (err) {
@@ -404,6 +441,7 @@ async function runAudioRegen(setStatus) {
         voiceId: regenVoiceSelect.value || undefined,
         modelId: modelSelect.value || undefined,
         subtitles: regenSubs.checked,
+        avatarVideo: regenAvatarVideo.checked,
       }),
     })
 
@@ -429,7 +467,7 @@ async function runAudioRegen(setStatus) {
     // sigue siendo el del servidor), solo se refrescan las marcas de slide muda.
     if (wasScriptOpen) await openScriptPanel({ keepStatus: true })
 
-    const warning = res.headers.get('X-Voice-Warning')
+    const warning = res.headers.get('X-Voice-Warning') || res.headers.get('X-Avatar-Warning')
     if (warning) setStatus('warning', '⚠️ ' + warning)
     else setStatus('ok', ('Audio actualizado ✓ ' + describeSynth(res.headers.get('X-Audio-Synth'))).trim())
   } catch (err) {
@@ -714,3 +752,4 @@ function showScriptStatus(type, msg) {
 loadThemes()
 loadVoices()
 loadUnsplashStatus()
+loadHeygenStatus()

@@ -121,6 +121,8 @@
     }
     .toggle-label { font-size: 0.9rem; font-weight: 500; color: var(--text); }
     .toggle-hint  { font-size: 0.74rem; color: var(--muted); margin-left: 0.25rem; }
+    .toggle-row.disabled { opacity: 0.5; cursor: not-allowed; }
+    .toggle-row.disabled input[type="checkbox"] { cursor: not-allowed; }
 
     /* Config expandible (voz, modelo, subs) — visible solo cuando voice está marcado */
     #voice-config {
@@ -378,6 +380,11 @@
             <span class="toggle-label">Subtítulos</span>
             <span class="toggle-hint">· activados al abrir el deck</span>
           </label>
+          <label class="toggle-row disabled" id="avatar-video-row">
+            <input type="checkbox" id="chk-avatar-video" disabled>
+            <span class="toggle-label">Avatar en vídeo (HeyGen)</span>
+            <span class="toggle-hint" id="avatar-video-hint">· comprobando disponibilidad…</span>
+          </label>
         </div>
       </div>
     </div>
@@ -435,6 +442,10 @@
           <label class="toggle-row" style="flex-shrink:0">
             <input type="checkbox" id="regen-subs" checked>
             <span class="toggle-label" style="font-size:0.85rem">Subtítulos</span>
+          </label>
+          <label class="toggle-row" style="flex-shrink:0;display:none" id="regen-avatar-video-row">
+            <input type="checkbox" id="regen-avatar-video">
+            <span class="toggle-label" style="font-size:0.85rem">Avatar en vídeo</span>
           </label>
           <button id="regen-audio-btn">Regenerar audio</button>
         </div>

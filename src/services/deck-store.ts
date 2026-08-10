@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto'
 import type { Slides } from '../config/schema.js'
 import type { DeckImages } from './slides.js'
 import type { DeckAudio } from './tts.js'
+import type { SlideVideo } from './heygen.js'
 
 /** Todo lo que hay que recordar del último audio sintetizado de un deck. */
 export interface DeckAudioState {
@@ -38,6 +39,12 @@ export interface DeckContext extends Partial<DeckAudioState> {
   themeName: string
   images: DeckImages
   createdAt: number
+  /**
+   * Vídeo de avatar (HeyGen) de la INTRO, si se generó. Va aparte de `audio` porque su
+   * validez depende de la MISMA voz/narración que lo generó: re-locutar con otra voz sin
+   * volver a pedir el avatar invalida el lip-sync (setDeckAudio lo borra si no se renueva).
+   */
+  introVideo?: SlideVideo
 }
 
 /** Narración lista para comparar: la caché de audio ignora espacios de borde. */
@@ -102,9 +109,16 @@ export function updateDeckNarrations(id: string, narrations: string[]): boolean 
   return true
 }
 
-/** Guarda el audio recién sintetizado como base de la próxima regeneración parcial. */
-export function setDeckAudio(id: string, state: DeckAudioState): void {
+/**
+ * Guarda el audio recién sintetizado como base de la próxima regeneración parcial.
+ * `introVideo` se asigna SIEMPRE de forma explícita (incluido `undefined`): un audio
+ * nuevo sin avatar-vídeo nuevo debe DESCARTAR el vídeo viejo (desincronía labial
+ * garantizada si no), nunca conservarlo silenciosamente.
+ */
+export function setDeckAudio(id: string, state: DeckAudioState & { introVideo?: SlideVideo }): void {
   const ctx = getDeck(id)
   if (!ctx) return
-  Object.assign(ctx, state)
+  const { introVideo, ...audioState } = state
+  Object.assign(ctx, audioState)
+  ctx.introVideo = introVideo
 }

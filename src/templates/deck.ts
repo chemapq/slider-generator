@@ -275,6 +275,10 @@ body {
   letter-spacing: .02em;
 }
 
+/* Avatar en vídeo (HeyGen): mismo hueco circular que la foto (.tutor .photo lo recorta
+   por tema), theme-agnostic porque apunta al elemento, no a una clase por tema. */
+.tutor .photo video[data-avatar-video] { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 /* Hint teclado (fixed esquina inferior derecha). Va en su propio pill oscuro por lo
    mismo que el nav: como texto blanco suelto era ilegible sobre slides claras. */
 .hint {
@@ -555,7 +559,9 @@ const DECK_JS = `
 
   var deckAudioData = window.__DECK_AUDIO__;
   var deckOpts      = window.__DECK_OPTS__ || {};
-  var hasAudio      = Array.isArray(deckAudioData) && deckAudioData.some(function (a) { return !!a; });
+  var hasAvatarVideo = document.querySelector('video[data-avatar-video]') !== null;
+  var hasAudio      = (Array.isArray(deckAudioData) && deckAudioData.some(function (a) { return !!a; }))
+    || hasAvatarVideo;
 
   // Estado del motor.
   var audioOn    = true;
@@ -612,19 +618,30 @@ const DECK_JS = `
     if (captionsEl) captionsEl.classList.remove('show');
   }
 
-  function getAudio(i) {
-    if (!deckAudioData || !deckAudioData[i]) return null;
+  // Elemento "de audio" de la slide i: si trae un <video data-avatar-video> (avatar
+  // HeyGen con lip-sync), ES el reproductor (su audio ya está dentro del mp4); si no,
+  // el <audio> de siempre. HTMLVideoElement y Audio comparten la API que usa el motor
+  // (play/pause/currentTime/duration/muted/onended/ontimeupdate/onloadedmetadata).
+  function getMedia(i) {
     if (!audioCache[i]) {
-      var a = new Audio(deckAudioData[i].src);
-      a.muted = muted;
-      audioCache[i] = a;
+      var video = slides[i] && slides[i].querySelector('video[data-avatar-video]');
+      if (video) {
+        video.muted = muted;
+        audioCache[i] = video;
+      } else if (deckAudioData && deckAudioData[i] && deckAudioData[i].src) {
+        var a = new Audio(deckAudioData[i].src);
+        a.muted = muted;
+        audioCache[i] = a;
+      } else {
+        return null;
+      }
     }
     return audioCache[i];
   }
 
   function playCurrent() {
     if (!hasAudio) return;
-    var audio = getAudio(cur);
+    var audio = getMedia(cur);
 
     // Parar el audio anterior.
     if (prevAudio && prevAudio !== audio) {
@@ -692,7 +709,7 @@ const DECK_JS = `
     if (!hasAudio) return;
     unlocked = true;
     audioOn = !audioOn;
-    var audio = getAudio(cur);
+    var audio = getMedia(cur);
     if (audio) {
       if (audioOn) audio.play().catch(function () {});
       else audio.pause();
@@ -720,7 +737,7 @@ const DECK_JS = `
     autoAdv = !autoAdv;
     if (autoAdv) {
       audioOn = true;
-      var audio = getAudio(cur);
+      var audio = getMedia(cur);
       if (audio) audio.play().catch(function () {});
     }
     syncBtns();

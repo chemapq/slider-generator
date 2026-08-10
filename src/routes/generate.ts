@@ -24,6 +24,7 @@ import {
   type SynthesizeOptions,
 } from '../services/tts.js'
 import { reviewDeck } from '../services/review.js'
+import { isHeygenConfigured, generateIntroAvatarVideo, type SlideVideo } from '../services/heygen.js'
 import {
   putDeck,
   getDeck,
@@ -32,6 +33,20 @@ import {
   setDeckAudio,
   normNarration,
 } from '../services/deck-store.js'
+
+/**
+ * Genera el vídeo de avatar de la intro a partir del audio ya sintetizado. Aislado:
+ * nunca lanza (fallos de HeyGen ya se atrapan dentro de generateIntroAvatarVideo); solo
+ * devuelve `null` cuando no hay nada que intentar (sin config, sin slide de intro con
+ * audio) para que el llamador decida el header de aviso.
+ */
+async function tryGenerateIntroVideo(slidesHtml: string[], audio: DeckAudio): Promise<SlideVideo | null> {
+  if (!isHeygenConfigured()) return null
+  const introIndex = slidesHtml.findIndex((html) => /\bdata-avatar\b/.test(html))
+  const introAudio = introIndex >= 0 ? audio[introIndex] : null
+  if (!introAudio) return null
+  return generateIntroAvatarVideo(introAudio.audioBase64)
+}
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
 
@@ -116,6 +131,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     let subtitlesEnabled = true
     let voiceIdOverride: string | undefined
     let modelIdOverride: string | undefined
+    let avatarVideoEnabled = false
 
     try {
       for await (const part of req.parts()) {
@@ -146,6 +162,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           else if (part.fieldname === 'subtitles') subtitlesEnabled = part.value !== 'off'
           else if (part.fieldname === 'voiceId' && part.value) voiceIdOverride = part.value
           else if (part.fieldname === 'modelId' && part.value) modelIdOverride = part.value
+          else if (part.fieldname === 'avatarVideo') avatarVideoEnabled = part.value === 'on'
         }
       }
     } catch (err: unknown) {
@@ -300,6 +317,22 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // Avatar en vídeo (HeyGen): solo si se pidió, hay audio, y HeyGen está
+      // configurado. Fallo aislado: sin vídeo, la intro conserva la foto estática.
+      let introVideo: SlideVideo | null = null
+      if (avatarVideoEnabled && audio) {
+        introVideo = await tryGenerateIntroVideo(
+          slides.slides.map((s) => s.html),
+          audio,
+        )
+        if (!introVideo) {
+          reply.header(
+            'X-Avatar-Warning',
+            'No se pudo generar el avatar en vídeo; la intro usa la foto.',
+          )
+        }
+      }
+
       // El audio se guarda junto al deck (con la narración y la voz que lo produjeron):
       // al editar el guion, /api/audio solo re-sintetiza las slides que cambiaron, y con
       // ESTA misma voz. X-Audio-Voice/Model se lo dicen a la UI para que el selector de
@@ -316,6 +349,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
           audioVoiceId: voice.voiceId,
           audioModelId: voice.modelId,
         }),
+        ...(introVideo && { introVideo }),
       })
       reply.header('X-Deck-Id', deckId)
       if (audio) {
@@ -323,7 +357,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         reply.header('X-Audio-Model', voice.modelId)
       }
 
-      html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled })
+      html = renderSlides(slides, theme, deckImages, audio, { subtitles: subtitlesEnabled }, introVideo)
     } catch (err: unknown) {
       if (isTransientApiError(err)) {
         return reply.status(503).send({
@@ -453,6 +487,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * Estado de HeyGen: la UI solo ofrece el checkbox "Avatar en vídeo" si hay clave +
+   * avatar de estudio configurados en el servidor.
+   */
+  app.get('/api/heygen', async (_req, reply) => {
+    return reply.send({ configured: isHeygenConfigured() })
+  })
+
+  /**
    * Busca UNA foto en Unsplash para el editor visual (regenerar/reemplazar una
    * imagen del deck). No toca el deck-store: el cliente aplica la foto en el DOM
    * y persiste con PUT /api/deck/:id/slides al guardar.
@@ -499,11 +541,16 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    * el default del entorno: regenerar una slide no debe cambiar la voz de las demás.
    * Solo un cambio explícito del usuario en la UI cambia la voz.
    *
-   * Body JSON: { deckId: string, voiceId?: string, subtitles?: boolean }
+   * `avatarVideo: true` → regenera también el avatar en vídeo (HeyGen) de la intro con
+   * el audio nuevo (gasta créditos reales). Sin ella, el deck NUNCA conserva un vídeo
+   * viejo con audio nuevo: si lo tenía, se descarta y sale foto estática + aviso.
+   *
+   * Body JSON: { deckId: string, voiceId?: string, subtitles?: boolean, avatarVideo?: boolean }
    * Response:  text/html (el deck con el nuevo audio embebido)
    * Headers:   X-Deck-Id (mismo id, reutilizable), X-Voice-Warning (si hubo degradación),
    *            X-Audio-Synth ("synthesized=N;reused=M;failed=K"),
-   *            X-Audio-Voice / X-Audio-Model (voz y modelo con los que quedó el deck)
+   *            X-Audio-Voice / X-Audio-Model (voz y modelo con los que quedó el deck),
+   *            X-Avatar-Warning (si el avatar en vídeo falló o se descartó)
    *
    * Errores:
    *   404  → deckId no encontrado (server reiniciado / expirado / id inválido)
@@ -511,8 +558,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
    *   502  → TTS falló por completo tras reintentos (la UI conserva el deck anterior)
    */
   app.post('/api/audio', async (req, reply) => {
-    const body = req.body as { deckId?: string; voiceId?: string; modelId?: string; subtitles?: boolean }
-    const { deckId, voiceId, modelId, subtitles } = body ?? {}
+    const body = req.body as {
+      deckId?: string
+      voiceId?: string
+      modelId?: string
+      subtitles?: boolean
+      avatarVideo?: boolean
+    }
+    const { deckId, voiceId, modelId, subtitles, avatarVideo } = body ?? {}
 
     if (!deckId || typeof deckId !== 'string') {
       return reply.status(400).send({ error: 'Falta deckId.' })
@@ -581,12 +634,36 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const audio: DeckAudio = fresh.map((a, i) => a ?? reused[i] ?? null)
+
+    // Avatar en vídeo: NUNCA se reutiliza el vídeo viejo con audio nuevo (desincronía
+    // labial garantizada). Solo se regenera si el cliente lo pide explícitamente;
+    // si no, se descarta (aunque el deck lo tuviera) y se avisa.
+    let introVideo: SlideVideo | null = null
+    if (avatarVideo) {
+      introVideo = await tryGenerateIntroVideo(
+        ctx.slides.slides.map((s) => s.html),
+        audio,
+      )
+      if (!introVideo) {
+        reply.header(
+          'X-Avatar-Warning',
+          'No se pudo generar el avatar en vídeo; la intro usa la foto.',
+        )
+      }
+    } else if (ctx.introVideo) {
+      reply.header(
+        'X-Avatar-Warning',
+        'La nueva voz descartó el avatar en vídeo (marca la casilla para regenerarlo).',
+      )
+    }
+
     setDeckAudio(deckId, {
       audio,
       audioKey,
       audioNarrations: narrations.map(normNarration),
       audioVoiceId: voice.voiceId,
       audioModelId: voice.modelId,
+      ...(introVideo && { introVideo }),
     })
 
     const theme = await loadTheme(ctx.themeName).catch(async () => {
@@ -595,9 +672,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       return all[0]!
     })
 
-    const html = renderSlides(ctx.slides, theme, ctx.images, audio, {
-      subtitles: subtitles !== false,
-    })
+    const html = renderSlides(
+      ctx.slides,
+      theme,
+      ctx.images,
+      audio,
+      { subtitles: subtitles !== false },
+      introVideo,
+    )
 
     const reusedCount = reused.filter((a) => a !== null).length
     const failed = pending.filter((n, i) => normNarration(n) && !fresh[i]).length
