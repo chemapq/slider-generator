@@ -17,6 +17,12 @@ export interface DeckImages {
    * al fotógrafo.
    */
   avatarPhoto?: { query: string; id: string; photographer: string }
+  /**
+   * Presente solo si el retrato es el del look de HeyGen que locuta el deck. Marca el
+   * origen (como `avatarPhoto` marca el de Unsplash) para que al cambiar de voz se sepa
+   * que esa foto se puede sustituir por la del nuevo presentador. No se renderiza.
+   */
+  avatarHeygenId?: string
 }
 
 function escapeAttr(s: string): string {
@@ -64,8 +70,16 @@ function fillSlots(html: string, images: DeckImages, introVideo?: SlideVideo | n
   // 1. Avatar: <img … data-avatar …>
   html = html.replace(/<img\b([^>]*)\bdata-avatar\b([^>]*)>/gi, (_match, before, after) => {
     if (introVideo) {
+      // El <video> HEREDA los atributos del <img> (class, style…) menos src/alt: en modo
+      // libre el tamaño del avatar suele venir en el propio tag, y descartarlo dejaba el
+      // vídeo en 1x1 e invisible. Los estilos inline heredados ganan a la regla de deck.ts.
+      const carried = `${before}${after}`
+        .replace(/\bsrc\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        .replace(/\balt\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        .replace(/\s+/g, ' ')
+        .trimEnd()
       return (
-        `<video data-avatar-video preload="auto" playsinline` +
+        `<video data-avatar-video preload="auto" playsinline${carried}` +
         `${images.avatar ? ` poster="${images.avatar}"` : ''}` +
         ` src="data:${introVideo.mime};base64,${introVideo.videoBase64}"></video>`
       )

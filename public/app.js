@@ -103,10 +103,10 @@ function updateAvatarVideoAvailability() {
   if (!available) { chkAvatarVideo.checked = false; avatarVideoEnabled = false }
   avatarVideoRow.classList.toggle('disabled', !available)
   avatarVideoHint.textContent = !heygenConfigured
-    ? '· requiere HEYGEN_API_KEY/HEYGEN_AVATAR_ID en el servidor'
+    ? '· requiere HeyGen configurado en el servidor'
     : !voiceEnabled
       ? '· requiere narración por voz activada'
-      : '· la intro habla con lip-sync'
+      : '· la intro habla con lip-sync, con la cara de la voz elegida'
   regenAvatarVideoRow.style.display = heygenConfigured ? 'flex' : 'none'
 }
 

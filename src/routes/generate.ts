@@ -24,13 +24,20 @@ import {
   type SynthesizeOptions,
 } from '../services/tts.js'
 import { reviewDeck } from '../services/review.js'
-import { isHeygenConfigured, generateIntroAvatarVideo, type SlideVideo } from '../services/heygen.js'
+import {
+  isHeygenConfigured,
+  generateIntroAvatarVideo,
+  fetchAvatarPortrait,
+  type SlideVideo,
+} from '../services/heygen.js'
+import { listVoiceOptions, avatarIdForVoice } from '../services/voice-catalog.js'
 import {
   putDeck,
   getDeck,
   updateDeckSlides,
   updateDeckNarrations,
   setDeckAudio,
+  setDeckAvatarImage,
   normNarration,
 } from '../services/deck-store.js'
 
@@ -40,12 +47,41 @@ import {
  * devuelve `null` cuando no hay nada que intentar (sin config, sin slide de intro con
  * audio) para que el llamador decida el header de aviso.
  */
-async function tryGenerateIntroVideo(slidesHtml: string[], audio: DeckAudio): Promise<SlideVideo | null> {
+async function tryGenerateIntroVideo(
+  slidesHtml: string[],
+  audio: DeckAudio,
+  avatarId?: string,
+): Promise<SlideVideo | null> {
   if (!isHeygenConfigured()) return null
   const introIndex = slidesHtml.findIndex((html) => /\bdata-avatar\b/.test(html))
   const introAudio = introIndex >= 0 ? audio[introIndex] : null
   if (!introAudio) return null
-  return generateIntroAvatarVideo(introAudio.audioBase64)
+  return generateIntroAvatarVideo(introAudio.audioBase64, { ...(avatarId && { avatarId }) })
+}
+
+/** Retrato del tutor: la cara del presentador de HeyGen o, si no la hay, una de Unsplash. */
+type TutorPortrait =
+  | { dataUri: string; heygenAvatarId: string }
+  | { dataUri: string; unsplash: { query: string; id: string; photographer: string } }
+
+/**
+ * Resuelve la foto del tutor dando prioridad al presentador que va a locutar: así el
+ * poster del vídeo y la slide de cierre muestran la MISMA cara que habla, en vez de un
+ * desconocido de Unsplash. Sin avatar de HeyGen (o si falla) cae al retrato de Unsplash
+ * de siempre. Nunca lanza; `null` → deck sin tutor, como hasta ahora.
+ */
+async function resolveTutorPortrait(heygenAvatarId?: string): Promise<TutorPortrait | null> {
+  if (heygenAvatarId) {
+    const dataUri = await fetchAvatarPortrait(heygenAvatarId)
+    if (dataUri) return { dataUri, heygenAvatarId }
+    console.warn('[heygen] sin retrato del presentador; se busca uno en Unsplash.')
+  }
+  const pick = await pickAvatarPhoto()
+  if (!pick) return null
+  return {
+    dataUri: pick.dataUri,
+    unsplash: { query: pick.query, id: pick.id, photographer: pick.photographer },
+  }
 }
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
@@ -196,11 +232,22 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     // data-img-query y se resuelven aquí con fotos reales.
     const unsplashEnabled = placeholders.length === 0 && isUnsplashConfigured()
 
-    // Sin avatar subido (ni de HeyGen) → el tutor sale de un retrato de Unsplash, para
-    // que la bienvenida y el cierre sigan teniendo cara. La búsqueda se lanza AHORA y se
-    // espera después de Claude: así corre en paralelo con la generación (coste 0 en
-    // tiempo real). Nunca lanza; null → deck sin tutor, como hasta ahora.
-    const avatarPromise = avatarUri === undefined ? pickAvatarPhoto() : null
+    // Voz elegida → cara del presentador. Se resuelve AQUÍ porque de ello depende el
+    // retrato del tutor, que se busca antes de Claude.
+    const ttsOpts: SynthesizeOptions = {
+      ...(voiceIdOverride && { voiceId: voiceIdOverride }),
+      ...(modelIdOverride && { modelId: modelIdOverride }),
+    }
+    const heygenAvatarId =
+      avatarVideoEnabled && voiceEnabled && isHeygenConfigured()
+        ? avatarIdForVoice(resolveVoice(ttsOpts).voiceId)
+        : undefined
+
+    // Sin avatar subido → el tutor sale del presentador de HeyGen (misma cara que hablará
+    // en la intro) o, en su defecto, de un retrato de Unsplash, para que la bienvenida y
+    // el cierre sigan teniendo cara. La búsqueda se lanza AHORA y se espera después de
+    // Claude: así corre en paralelo con la generación (coste 0 en tiempo real).
+    const avatarPromise = avatarUri === undefined ? resolveTutorPortrait(heygenAvatarId) : null
     const willHaveAvatar = avatarUri !== undefined || avatarPromise !== null
 
     // El tema aporta el contrato de tokens base (colores, tipografía, componentes).
@@ -231,11 +278,10 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         const pick = await avatarPromise
         if (pick) {
           deckImages.avatar = pick.dataUri
-          deckImages.avatarPhoto = {
-            query: pick.query,
-            id: pick.id,
-            photographer: pick.photographer,
-          }
+          // Solo el retrato de Unsplash lleva atribución y data-img-query: la cara del
+          // presentador es una identidad fija, no algo que el editor deba regenerar.
+          if ('unsplash' in pick) deckImages.avatarPhoto = pick.unsplash
+          else deckImages.avatarHeygenId = pick.heygenAvatarId
         }
       }
 
@@ -250,7 +296,15 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       console.log(
         `[unsplash] enabled=${unsplashEnabled} imgSubidas=${placeholders.length} ` +
           `keyConfig=${isUnsplashConfigured()} slotsEnDeck=${unsplashSlotCount} ` +
-          `avatar=${avatarUri ? 'subido' : deckImages.avatar ? 'unsplash' : 'sin avatar'}`,
+          `avatar=${
+            avatarUri
+              ? 'subido'
+              : deckImages.avatarHeygenId
+                ? `heygen:${deckImages.avatarHeygenId}`
+                : deckImages.avatar
+                  ? 'unsplash'
+                  : 'sin avatar'
+          }`,
       )
       if (unsplashEnabled) {
         try {
@@ -299,10 +353,6 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
       // TTS: solo si voice=on y hay API key. Los fallos son aislados: generamos
       // el deck sin audio en lugar de tumbar toda la petición.
       let audio: DeckAudio | undefined
-      const ttsOpts: SynthesizeOptions = {
-        ...(voiceIdOverride && { voiceId: voiceIdOverride }),
-        ...(modelIdOverride && { modelId: modelIdOverride }),
-      }
       if (voiceEnabled && process.env.ELEVENLABS_API_KEY) {
         try {
           const narrations = slides.slides.map((s) => s.narration)
@@ -324,6 +374,7 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         introVideo = await tryGenerateIntroVideo(
           slides.slides.map((s) => s.html),
           audio,
+          heygenAvatarId,
         )
         if (!introVideo) {
           reply.header(
@@ -638,11 +689,14 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
     // Avatar en vídeo: NUNCA se reutiliza el vídeo viejo con audio nuevo (desincronía
     // labial garantizada). Solo se regenera si el cliente lo pide explícitamente;
     // si no, se descarta (aunque el deck lo tuviera) y se avisa.
+    const heygenAvatarId = avatarIdForVoice(voice.voiceId)
+
     let introVideo: SlideVideo | null = null
     if (avatarVideo) {
       introVideo = await tryGenerateIntroVideo(
         ctx.slides.slides.map((s) => s.html),
         audio,
+        heygenAvatarId,
       )
       if (!introVideo) {
         reply.header(
@@ -655,6 +709,19 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
         'X-Avatar-Warning',
         'La nueva voz descartó el avatar en vídeo (marca la casilla para regenerarlo).',
       )
+    }
+
+    // La voz nueva puede tener otra cara. Si el retrato del deck era el del presentador
+    // anterior, se sustituye por el del nuevo: si no, el vídeo hablaría con una cara y la
+    // slide de cierre mostraría otra. Solo aplica a retratos de HeyGen; los subidos por el
+    // usuario, los de Unsplash y los cambiados en el editor se respetan.
+    const prevAvatarId = ctx.images.avatarHeygenId
+    if (prevAvatarId && heygenAvatarId && prevAvatarId !== heygenAvatarId) {
+      const portrait = await fetchAvatarPortrait(heygenAvatarId)
+      if (portrait) {
+        setDeckAvatarImage(deckId, portrait, heygenAvatarId)
+        console.log(`[heygen] retrato del tutor actualizado al presentador ${heygenAvatarId}.`)
+      }
     }
 
     setDeckAudio(deckId, {
@@ -715,32 +782,12 @@ export async function generateRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Lista las voces disponibles para el selector de la UI.
-   * Lee ELEVENLABS_VOICES (JSON array de {id, label}) del entorno.
-   * Si no está definida pero sí ELEVENLABS_VOICE_ID, devuelve esa como "Voz por defecto".
+   * El `avatarId` del catálogo NO se expone: es cosa del servidor con qué cara se graba
+   * cada voz, y así el contrato con el front no cambia.
    */
   app.get('/api/voices', async (_req, reply) => {
     const configured = Boolean(process.env.ELEVENLABS_API_KEY)
-    let voices: { id: string; label: string }[] = []
-
-    const raw = process.env.ELEVENLABS_VOICES
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as unknown
-        if (Array.isArray(parsed)) {
-          voices = parsed.filter(
-            (v): v is { id: string; label: string } =>
-              typeof v === 'object' && v !== null && typeof v.id === 'string' && typeof v.label === 'string',
-          )
-        }
-      } catch {
-        // ELEVENLABS_VOICES malformado: devolvemos array vacío (no rompemos)
-      }
-    }
-
-    if (!voices.length && process.env.ELEVENLABS_VOICE_ID) {
-      voices = [{ id: process.env.ELEVENLABS_VOICE_ID, label: 'Voz por defecto' }]
-    }
-
+    const voices = listVoiceOptions().map(({ id, label }) => ({ id, label }))
     return reply.send({ configured, voices })
   })
 }

@@ -12,12 +12,26 @@
  * corte de bytes aproximado, no un re-encode; suficiente para un vídeo de prueba.
  */
 
+import { hasVoiceAvatars } from './voice-catalog.js'
+
 const API_BASE = 'https://api.heygen.com'
 const MAX_RETRIES = 3
 const POLL_INTERVAL_MS = 5000
 const DEFAULT_POLL_TIMEOUT_MS = 10 * 60 * 1000
 const MAX_VIDEO_BYTES = 24 * 1024 * 1024 // ~24 MB de mp4 (≈32 MB ya en base64)
 const MP3_BYTES_PER_SEC = 8000 // mp3_44100_64 (tts.ts) ≈ 64 kbps CBR
+
+/**
+ * Motor de render. HeyGen cae en `avatar_iv` si no se declara, que cuesta $4/min y solo
+ * lo admiten algunos looks (de ahí los "does not support Avatar IV video generation" con
+ * avatares del catálogo). `avatar_iii` cuesta $1/min y lo soporta casi todo.
+ */
+const DEFAULT_ENGINE = 'avatar_iii'
+
+/** Motor efectivo. Cada look declara los que admite en `supported_api_engines`. */
+export function heygenEngine(): string {
+  return process.env.HEYGEN_ENGINE || DEFAULT_ENGINE
+}
 
 export interface SlideVideo {
   /** mp4 en base64, SIN prefijo data:. */
@@ -26,8 +40,13 @@ export interface SlideVideo {
   durationSec: number
 }
 
+/**
+ * Configurado = hay clave y hay AL MENOS una cara disponible, ya sea el presentador por
+ * defecto (`HEYGEN_AVATAR_ID`) o el look que declare alguna voz del catálogo.
+ */
 export function isHeygenConfigured(): boolean {
-  return Boolean(process.env.HEYGEN_API_KEY && process.env.HEYGEN_AVATAR_ID)
+  if (!process.env.HEYGEN_API_KEY) return false
+  return Boolean(process.env.HEYGEN_AVATAR_ID) || hasVoiceAvatars()
 }
 
 /** Segundos a los que recortar el audio en modo pruebas; 0 = sin recorte. */
@@ -119,6 +138,9 @@ async function createVideo(apiKey: string, avatarId: string, audioAssetId: strin
     headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type: 'avatar',
+      // `engine` es un objeto discriminado por `type`, no una cadena: mandarlo plano da
+      // 400 "Input should be a valid dictionary or object to extract fields from".
+      engine: { type: heygenEngine() },
       avatar_id: avatarId,
       audio_asset_id: audioAssetId,
       resolution: '720p',
@@ -161,6 +183,155 @@ async function pollVideo(
   throw new Error(`HeyGen: timeout esperando el vídeo (>${Math.round(timeoutMs / 1000)}s).`)
 }
 
+export interface AvatarLook {
+  id: string
+  name: string
+  /** `studio_avatar` | `digital_twin` | `photo_avatar`. */
+  avatarType: string
+  gender: string
+  /** `completed` es el único estado utilizable (solo lo reportan los avatares propios). */
+  status: string
+  /** Motores que admite: `avatar_iii` | `avatar_iv` | `avatar_v`. */
+  supportedEngines: string[]
+  previewImageUrl: string
+}
+
+/**
+ * Ficha de un look de avatar. Es la forma BARATA de saber si un `avatarId` va a funcionar:
+ * `supportedEngines` y `status` se consultan sin generar vídeo ni gastar créditos.
+ * Nunca lanza: devuelve `null` si el look no existe o la API falla.
+ */
+export async function fetchAvatarLook(lookId: string): Promise<AvatarLook | null> {
+  const apiKey = process.env.HEYGEN_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const res = await fetchWithRetry(`${API_BASE}/v3/avatars/looks/${encodeURIComponent(lookId)}`, {
+      headers: { 'x-api-key': apiKey },
+    })
+    const json = (await res.json()) as {
+      data?: {
+        id?: string
+        name?: string
+        avatar_type?: string
+        gender?: string
+        status?: string
+        supported_api_engines?: string[]
+        preview_image_url?: string
+      }
+    }
+    const d = json.data
+    if (!d?.id) return null
+    return {
+      id: d.id,
+      name: d.name ?? '',
+      avatarType: d.avatar_type ?? '',
+      gender: d.gender ?? '',
+      status: d.status ?? '',
+      supportedEngines: d.supported_api_engines ?? [],
+      previewImageUrl: d.preview_image_url ?? '',
+    }
+  } catch (err) {
+    console.warn(`[heygen] no se pudo leer el look ${lookId}: ${err instanceof Error ? err.message : err}`)
+    return null
+  }
+}
+
+/**
+ * Retrato del presentador como data URI, para que la foto estática (poster del vídeo y
+ * slide de cierre) sea LA MISMA CARA que habla en la intro.
+ *
+ * `preview_image_url` viene firmada y caduca, así que se descarga en el momento y se
+ * embebe, igual que hacemos con las fotos de Unsplash. Nunca lanza.
+ */
+export async function fetchAvatarPortrait(lookId: string): Promise<string | null> {
+  const look = await fetchAvatarLook(lookId)
+  if (!look?.previewImageUrl) return null
+
+  try {
+    const res = await fetchWithRetry(look.previewImageUrl, {})
+    const mime = res.headers.get('content-type')?.split(';')[0]?.trim() || 'image/jpeg'
+    const buf = Buffer.from(await res.arrayBuffer())
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[heygen] no se pudo descargar el retrato de "${look.name}": ${msg}`)
+    return null
+  }
+}
+
+interface UserBilling {
+  billingType: 'wallet' | 'subscription' | 'usage_based' | null
+  walletBalance?: number
+  walletCurrency?: string
+  premiumCreditsRemaining?: number
+  addOnCreditsRemaining?: number
+  spendingCurrentUsd?: number
+}
+
+/** Consulta el saldo/créditos de la cuenta. No lanza: si falla, se omite el log de gasto. */
+async function fetchUserBilling(apiKey: string): Promise<UserBilling | null> {
+  try {
+    const res = await fetchWithRetry(`${API_BASE}/v3/users/me`, {
+      headers: { 'x-api-key': apiKey },
+    })
+    const json = (await res.json()) as {
+      data?: {
+        billing_type?: 'wallet' | 'subscription' | 'usage_based'
+        wallet?: { remaining_balance?: number; currency?: string }
+        subscription?: {
+          credits?: { premium_credits?: { remaining?: number }; add_on_credits?: { remaining?: number } }
+        }
+        usage_based?: { spending_current_usd?: number }
+      }
+    }
+    const data = json.data
+    if (!data) return null
+    return {
+      billingType: data.billing_type ?? null,
+      walletBalance: data.wallet?.remaining_balance,
+      walletCurrency: data.wallet?.currency,
+      premiumCreditsRemaining: data.subscription?.credits?.premium_credits?.remaining,
+      addOnCreditsRemaining: data.subscription?.credits?.add_on_credits?.remaining,
+      spendingCurrentUsd: data.usage_based?.spending_current_usd,
+    }
+  } catch (err) {
+    console.warn(`[heygen] no se pudo consultar el saldo: ${err instanceof Error ? err.message : err}`)
+    return null
+  }
+}
+
+/** Compara el saldo antes/después del vídeo y loguea lo gastado, según el modelo de facturación. */
+function logCreditsSpent(before: UserBilling | null, after: UserBilling | null): void {
+  if (!before || !after || before.billingType !== after.billingType) return
+  switch (after.billingType) {
+    case 'wallet': {
+      if (before.walletBalance == null || after.walletBalance == null) return
+      const spent = before.walletBalance - after.walletBalance
+      const currency = after.walletCurrency ?? ''
+      console.log(
+        `[heygen] gasto del vídeo de avatar: ${spent.toFixed(2)} ${currency} (saldo restante: ${after.walletBalance.toFixed(2)} ${currency}).`,
+      )
+      return
+    }
+    case 'subscription': {
+      const beforeTotal = (before.premiumCreditsRemaining ?? 0) + (before.addOnCreditsRemaining ?? 0)
+      const afterTotal = (after.premiumCreditsRemaining ?? 0) + (after.addOnCreditsRemaining ?? 0)
+      console.log(
+        `[heygen] gasto del vídeo de avatar: ${(beforeTotal - afterTotal).toFixed(2)} créditos (restantes: ${afterTotal.toFixed(2)}).`,
+      )
+      return
+    }
+    case 'usage_based': {
+      if (before.spendingCurrentUsd == null || after.spendingCurrentUsd == null) return
+      console.log(
+        `[heygen] gasto del vídeo de avatar: $${(after.spendingCurrentUsd - before.spendingCurrentUsd).toFixed(2)} (acumulado del periodo: $${after.spendingCurrentUsd.toFixed(2)}).`,
+      )
+      return
+    }
+  }
+}
+
 async function downloadVideo(videoUrl: string): Promise<Buffer> {
   const res = await fetchWithRetry(videoUrl, {})
   const buf = Buffer.from(await res.arrayBuffer())
@@ -170,14 +341,23 @@ async function downloadVideo(videoUrl: string): Promise<Buffer> {
   return buf
 }
 
+export interface AvatarVideoOptions {
+  /** Look con el que grabar. Sin él, el presentador por defecto (`HEYGEN_AVATAR_ID`). */
+  avatarId?: string
+  mimeIsMp3?: boolean
+}
+
 /**
  * Genera el vídeo de avatar para la INTRO a partir del mp3 de esa slide. Nunca lanza
  * por un fallo del propio HeyGen (créditos, timeout, red…): devuelve `null` y loguea.
  * Solo lanza si falta configuración (para que el llamador decida no intentarlo).
  */
-export async function generateIntroAvatarVideo(audioBase64: string, mimeIsMp3 = true): Promise<SlideVideo | null> {
+export async function generateIntroAvatarVideo(
+  audioBase64: string,
+  { avatarId: avatarIdOpt, mimeIsMp3 = true }: AvatarVideoOptions = {},
+): Promise<SlideVideo | null> {
   const apiKey = process.env.HEYGEN_API_KEY
-  const avatarId = process.env.HEYGEN_AVATAR_ID
+  const avatarId = avatarIdOpt || process.env.HEYGEN_AVATAR_ID
   if (!apiKey || !avatarId) throw new Error('Falta HEYGEN_API_KEY/HEYGEN_AVATAR_ID en el entorno.')
   if (!mimeIsMp3) {
     console.warn('[heygen] audio no-mp3 recibido; se sube tal cual (HeyGen autodetecta el MIME).')
@@ -192,11 +372,17 @@ export async function generateIntroAvatarVideo(audioBase64: string, mimeIsMp3 = 
   const pollTimeoutMs = Number(process.env.HEYGEN_POLL_TIMEOUT_MS) || DEFAULT_POLL_TIMEOUT_MS
 
   try {
+    const billingBefore = await fetchUserBilling(apiKey)
     const assetId = await uploadAudioAsset(apiKey, Buffer.from(trimmed, 'base64'))
     const videoId = await createVideo(apiKey, avatarId, assetId)
     const { videoUrl, durationSec } = await pollVideo(apiKey, videoId, pollTimeoutMs)
     const mp4 = await downloadVideo(videoUrl)
-    console.log(`[heygen] vídeo de intro generado: ${durationSec}s, ${Math.round(mp4.length / 1024)} KB.`)
+    const billingAfter = await fetchUserBilling(apiKey)
+    logCreditsSpent(billingBefore, billingAfter)
+    console.log(
+      `[heygen] vídeo de intro generado: avatar=${avatarId} engine=${heygenEngine()} ` +
+        `${durationSec}s, ${Math.round(mp4.length / 1024)} KB.`,
+    )
     return { videoBase64: mp4.toString('base64'), mime: 'video/mp4', durationSec }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

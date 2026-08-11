@@ -1,0 +1,55 @@
+# Blueprint de Render. Crea el servicio con: Dashboard → New → Blueprint (apunta al repo).
+#
+# Los secretos NO van aquí: quedan marcados con `sync: false` para que Render los pida al
+# crear el servicio y se guarden cifrados. Este fichero se commitea; las claves no.
+services:
+  - type: web
+    name: slider-generator
+    runtime: node
+    # free vale para pruebas: duerme tras 15 min sin tráfico (los decks en memoria se
+    # pierden al dormir) y tarda ~1 min en despertar, pero no corta una petición ya en
+    # curso. Sube a starter cuando esto deje de ser solo para probar.
+    plan: free
+    region: frankfurt
+    branch: master
+    # --include=dev es deliberado: TypeScript es devDependency y con NODE_ENV=production
+    # npm podría omitirlo, dejando el build sin `tsc`.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+
+      # La revisión visual necesita Chromium, que el runtime nativo de Render no trae.
+      # Apagada, el deck se genera igual (solo pierde el repaso de contraste/solapes).
+      # Para recuperarla: `runtime: docker` + el Dockerfile del repo, y borrar esta línea.
+      - key: VISUAL_REVIEW
+        value: "off"
+
+      # ── Secretos: Render los pide al crear el servicio ────────────────────
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: APP_PASSWORD # sin valor la app queda ABIERTA en internet
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true # Render genera uno aleatorio y lo guarda
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
+      - key: HEYGEN_API_KEY
+        sync: false
+
+      # ── Configuración no secreta ──────────────────────────────────────────
+      - key: ELEVENLABS_VOICES
+        sync: false # el JSON de voces + avatares; se pega en el dashboard
+      - key: HEYGEN_ENGINE
+        value: avatar_iii
+      - key: HEYGEN_AVATAR_ID
+        value: Raul_expressive_2024112501
+      # Quítala (o ponla a 0) para que los vídeos duren lo que la narración real.
+      - key: HEYGEN_TEST_MAX_SEC
+        value: "8"

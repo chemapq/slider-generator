@@ -6,9 +6,10 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "heygen:avatars": "tsx scripts/heygen-avatars.ts"
   },
   "keywords": [
     "claude",
@@ -32,5 +33,8 @@
     "@types/node": "^25.9.3",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=20 <23"
   }
 }

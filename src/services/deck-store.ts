@@ -122,3 +122,18 @@ export function setDeckAudio(id: string, state: DeckAudioState & { introVideo?: 
   Object.assign(ctx, audioState)
   ctx.introVideo = introVideo
 }
+
+/**
+ * Cambia el retrato del tutor por el del presentador de HeyGen indicado. Se usa al
+ * regenerar con otra voz: si la voz nueva tiene otra cara, la foto estática (poster del
+ * vídeo y slide de cierre) tiene que seguirla, o el deck mezcla dos personas.
+ */
+export function setDeckAvatarImage(id: string, dataUri: string, heygenAvatarId: string): void {
+  const ctx = getDeck(id)
+  if (!ctx) return
+  ctx.images.avatar = dataUri
+  ctx.images.avatarHeygenId = heygenAvatarId
+  // El retrato ya no viene de Unsplash: fuera la atribución y el data-img-query que
+  // dejaría al editor visual "regenerar" la cara del presentador.
+  delete ctx.images.avatarPhoto
+}

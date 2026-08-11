@@ -275,9 +275,11 @@ body {
   letter-spacing: .02em;
 }
 
-/* Avatar en vídeo (HeyGen): mismo hueco circular que la foto (.tutor .photo lo recorta
-   por tema), theme-agnostic porque apunta al elemento, no a una clase por tema. */
-.tutor .photo video[data-avatar-video] { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Avatar en vídeo (HeyGen): ocupa el hueco de la foto que sustituye. Sin acoplar a
+   .tutor .photo, porque en modo libre Claude estructura el avatar como quiera y ahí el
+   vídeo se quedaba en 1x1 (display:inline por defecto). Cualquier width/height inline
+   heredado del <img> original gana a esta regla. */
+video[data-avatar-video] { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* Hint teclado (fixed esquina inferior derecha). Va en su propio pill oscuro por lo
    mismo que el nav: como texto blanco suelto era ilegible sobre slides claras. */

@@ -5,30 +5,46 @@ import { chromium, type Browser } from 'playwright-core'
 /**
  * Captura de slides en un navegador headless para la revisión visual.
  *
- * NOTA (prototipo): resolvemos el ejecutable de Chromium desde la caché de
- * ms-playwright (la misma que usa la skill `verify`) o desde CHROMIUM_PATH. Para un
- * despliegue real conviene fijar el navegador (playwright install / imagen con Chromium).
+ * Resolvemos el ejecutable de Chromium desde `CHROMIUM_PATH`, desde la ruta que fije
+ * `PLAYWRIGHT_BROWSERS_PATH` o desde la caché por defecto de ms-playwright (la misma que
+ * usa la skill `verify`). Contempla macOS y Linux: en el contenedor de un PaaS la caché
+ * vive en `~/.cache/ms-playwright` y el binario es `chrome-linux/chrome`, no un .app.
+ *
+ * Si no hay navegador, `getBrowser()` lanza y la revisión visual queda desactivada de
+ * hecho (el llamador la trata como fallo aislado). En un despliegue sin Chromium conviene
+ * apagarla explícitamente con `VISUAL_REVIEW=off` para no perder tiempo intentándolo.
  */
+const CANDIDATE_BINARIES = [
+  // Linux (contenedores, Render)
+  join('chrome-linux', 'chrome'),
+  join('chrome-linux64', 'chrome'),
+  // macOS
+  join('chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+  join('chrome-mac', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+]
+
+function browserCacheDirs(): string[] {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return [process.env.PLAYWRIGHT_BROWSERS_PATH]
+  const home = process.env.HOME || ''
+  if (!home) return []
+  return [join(home, '.cache', 'ms-playwright'), join(home, 'Library', 'Caches', 'ms-playwright')]
+}
+
 function resolveExecutable(): string | undefined {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH
-  const home = process.env.HOME || ''
-  const base = join(home, 'Library', 'Caches', 'ms-playwright')
-  if (!existsSync(base)) return undefined
-  const dirs = readdirSync(base)
-    .filter((d) => d.startsWith('chromium-'))
-    .sort()
-    .reverse()
-  for (const d of dirs) {
-    const exe = join(
-      base,
-      d,
-      'chrome-mac-arm64',
-      'Google Chrome for Testing.app',
-      'Contents',
-      'MacOS',
-      'Google Chrome for Testing',
-    )
-    if (existsSync(exe)) return exe
+
+  for (const base of browserCacheDirs()) {
+    if (!existsSync(base)) continue
+    const dirs = readdirSync(base)
+      .filter((d) => d.startsWith('chromium-'))
+      .sort()
+      .reverse()
+    for (const d of dirs) {
+      for (const bin of CANDIDATE_BINARIES) {
+        const exe = join(base, d, bin)
+        if (existsSync(exe)) return exe
+      }
+    }
   }
   return undefined
 }
