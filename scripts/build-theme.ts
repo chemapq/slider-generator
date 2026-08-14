@@ -363,6 +363,8 @@ async function writeArtifacts(theme: Theme): Promise<void> {
       title: `Preview — ${validated.label ?? validated.name}`,
       css: validated.css,
       slides: SAMPLE_SLIDES,
+      // El preview tiene que mostrar la firma de movimiento del tema, no la de por defecto.
+      motion: validated.motion,
     }),
     'utf8',
   )

@@ -18,8 +18,12 @@ HTML autocontenido corriendo en un navegador. No hace falta el server ni las API
    audio (`null`) para probar la ocultación de controles.
 
 2. **Conducirlo con playwright-core** (`npm i playwright-core` en el scratchpad; los
-   navegadores ya están cacheados). Ejecutable:
-   `~/Library/Caches/ms-playwright/chromium-*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+   navegadores ya están cacheados). Para el ejecutable, reutilizar el resolutor del repo
+   (`resolveExecutable` en `src/services/render-image.ts`) o buscar a mano en la caché de
+   ms-playwright, que cambia de sitio y de binario según el SO:
+   - Windows: `%LOCALAPPDATA%\ms-playwright\chromium-*\chrome-win64\chrome.exe`
+   - macOS: `~/Library/Caches/ms-playwright/chromium-*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+   - Linux: `~/.cache/ms-playwright/chromium-*/chrome-linux/chrome`
    Lanzar con `--autoplay-policy=no-user-gesture-required`.
 
 3. **Gotchas del motor de audio**: el audio no arranca hasta un gesto (`unlock()` va en

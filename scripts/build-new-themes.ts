@@ -575,7 +575,7 @@ async function main(): Promise<void> {
     )
     await writeFile(
       join(ROOT, 'previews', `${v.name}.html`),
-      renderDeck({ title: `Preview — ${v.label}`, css: v.css, slides: SAMPLE_SLIDES }),
+      renderDeck({ title: `Preview — ${v.label}`, css: v.css, slides: SAMPLE_SLIDES, motion: v.motion }),
       'utf8',
     )
     console.log(`✓ ${v.name.padEnd(12)} → themes/${v.name}.json · previews/${v.name}.html  (${status})`)

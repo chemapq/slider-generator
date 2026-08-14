@@ -264,47 +264,35 @@ video[data-avatar-video] { width: 100%; height: 100%; object-fit: cover; display
   pointer-events: none;
 }
 @media (max-width: 640px) { .hint { display: none; } }
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 :root {
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --w-display: 700; --w-h2: 600; --w-h3: 600; --track-display: -.02em;
-  --primary: #5B8DEF;
-  --primary-600: #8FB4FF;
-  --primary-300: #6FE3D6;
-  --primary-100: #243154;
-  --primary-soft: #141C36;
-  --ink: #ECEEF7;
-  --ink-soft: #C9CFE2;
-  --muted: #98A1BD;
-  --muted-2: #707A97;
-  --line: rgba(255,255,255,.10);
-  --card: #161C32;
-  --card-2: #1E2542;
-  --black: #070A14;
-  --bg: #0B1020;
-  --grad: linear-gradient(135deg, #5B8DEF 0%, #7B6BF2 48%, #34D6C8 100%);
-  --grad-soft: linear-gradient(135deg, #1A2240 0%, #122436 100%);
-  --shadow-sm: 0 2px 12px rgba(0,0,0,.45);
-  --shadow: 0 18px 50px rgba(3,8,24,.55);
-  --shadow-lg: 0 30px 80px rgba(2,6,20,.7), 0 0 70px rgba(91,141,239,.28);
-  --radius: 22px;
-  --radius-sm: 14px;
-  --avatar-ring: #6FE3D6;
-  --blob: rgba(91,141,239,.45);
-  --dot-radius: 8px;
-  --tag-border: rgba(255,255,255,.12);
-  --card-border: 1px solid rgba(255,255,255,.07);
-  --card-shadow: 0 18px 50px rgba(3,8,24,.5);
-  --ico-bg: #FFFFFF;
-  --ico-radius: 13px;
-  --numbadge: rgba(123,160,255,.18);
-  --on-dark-muted: #AEB6CE;
-  --on-accent-muted: #E2EAFF;
+  --primary: #6C4CF1;
+  --primary-600: #5B3CE0;
+  --primary-300: #A78BFF;
+  --primary-100: #EDE8FF;
+  --primary-soft: #F4F1FF;
+  --ink: #16131F;
+  --ink-soft: #2A2636;
+  --muted: #6B6880;
+  --muted-2: #8E8BA0;
+  --line: #E7E5EF;
+  --card: #F2F1F6;
+  --card-2: #ECEAF3;
+  --black: #0C0B10;
+  --bg: #FFFFFF;
+  --grad: linear-gradient(135deg, #7C5CFC 0%, #5B3CE0 60%, #3F27B8 100%);
+  --grad-soft: linear-gradient(135deg, #EFEAFF 0%, #E2D8FF 100%);
+  --blob: rgba(108,76,241,.35);
+  --shadow-sm: 0 2px 10px rgba(28,20,60,.06);
+  --shadow: 0 18px 50px rgba(60,40,140,.14);
+  --shadow-lg: 0 30px 70px rgba(40,25,110,.20);
+  --radius: 26px;
+  --radius-sm: 16px;
+  --avatar-ring: var(--primary-300);
 }
 
-/* Fondo de slide (el chrome de deck.ts ya pone position/opacity/transform) */
+/* Fondo de slide de contenido (el chrome ya pone position/opacity/transform) */
 .slide { background: var(--bg); }
 
 /* Utilidades */
@@ -312,64 +300,103 @@ video[data-avatar-video] { width: 100%; height: 100%; object-fit: cover; display
 .col { display: flex; flex-direction: column; }
 
 /* ── Tipografía ─────────────────────────────────────────────────────────── */
-body { font-family: var(--font-body); }
-h1 { font-family: var(--font-display); font-weight: var(--w-display); letter-spacing: var(--track-display); line-height: 1.02; color: var(--ink); }
-h2 { font-family: var(--font-display); font-weight: var(--w-h2); letter-spacing: var(--track-display); line-height: 1.06; color: var(--ink); }
-h3 { font-family: var(--font-display); font-weight: var(--w-h3); letter-spacing: -.01em; line-height: 1.14; color: var(--ink); }
+h1 { font-weight: 900; letter-spacing: -.03em; line-height: 1.02; color: var(--ink); }
+h2 { font-weight: 800; letter-spacing: -.025em; line-height: 1.05; color: var(--ink); }
+h3 { font-weight: 800; letter-spacing: -.015em; line-height: 1.12; }
 p  { color: var(--muted); line-height: 1.55; font-weight: 400; }
-.lead { font-size: 18px; color: var(--ink-soft); line-height: 1.6; font-weight: 500; }
+.lead   { font-size: 18px; color: var(--ink-soft); line-height: 1.6; font-weight: 500; }
 b, strong { color: var(--ink); font-weight: 700; }
-.vio { color: var(--primary); }
+.vio    { color: var(--primary); }
 .kicker, .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted-2); }
-.stat { font-family: var(--font-display); font-weight: var(--w-display); letter-spacing: -.03em; color: var(--ink); line-height: 1; }
+.stat   { font-weight: 900; letter-spacing: -.03em; color: var(--ink); line-height: 1; }
 
 /* ── Brand bar ──────────────────────────────────────────────────────────── */
-.brandbar { position: absolute; top: 30px; left: 72px; right: 72px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
-.brand { display: flex; align-items: center; gap: 11px; font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: -.01em; color: var(--ink); }
-.brand .dot { width: 26px; height: 26px; border-radius: var(--dot-radius); background: var(--grad); box-shadow: var(--shadow-sm); position: relative; }
-.brand .dot::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--bg); opacity: .92; }
+.brandbar {
+  position: absolute; top: 30px; left: 72px; right: 72px;
+  display: flex; align-items: center; justify-content: space-between;
+  z-index: 5;
+}
+.brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 16px; letter-spacing: -.01em; color: var(--ink); }
+.brand .dot { width: 26px; height: 26px; border-radius: 8px; background: var(--grad); box-shadow: var(--shadow-sm); position: relative; }
+.brand .dot::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #fff; opacity: .92; }
 .brand.light, .brand.light .num { color: #fff; }
 .num { font-size: 13px; font-weight: 700; color: var(--muted-2); letter-spacing: .04em; }
 
 /* ── Tags / botones ─────────────────────────────────────────────────────── */
-.tag { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-600); font-size: 13px; font-weight: 700; letter-spacing: .02em; width: max-content; border: 1px solid var(--tag-border); }
+.tag {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--primary-soft); color: var(--primary-600);
+  font-size: 13px; font-weight: 700; letter-spacing: .02em; width: max-content;
+  border: 1px solid #E4DDFF;
+}
 .tag .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
-.btn { display: inline-flex; align-items: center; gap: 14px; background: var(--black); color: #fff; border-radius: 999px; padding: 14px 22px 14px 26px; font-family: var(--font-display); font-weight: 700; font-size: 15px; width: max-content; box-shadow: var(--shadow-sm); }
+.btn {
+  display: inline-flex; align-items: center; gap: 14px;
+  background: var(--black); color: #fff; border-radius: 999px;
+  padding: 14px 22px 14px 26px; font-weight: 700; font-size: 15px; width: max-content;
+}
 .btn .circ { width: 34px; height: 34px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; }
 .btn .circ svg { width: 15px; height: 15px; }
 
 /* ── Tarjetas ───────────────────────────────────────────────────────────── */
-.card { background: var(--card); border-radius: var(--radius); padding: 30px 32px; position: relative; overflow: hidden; border: var(--card-border); box-shadow: var(--card-shadow); }
-.card.dark { background: var(--black); color: #fff; border-color: transparent; }
-.card.dark h3 { color: #fff; }
-.card.dark p { color: var(--on-dark-muted); }
-.card.violet { background: var(--grad); color: #fff; border-color: transparent; }
-.card.violet h3 { color: #fff; }
-.card.violet p { color: var(--on-accent-muted); }
-.card .ico { width: 46px; height: 46px; border-radius: var(--ico-radius); background: var(--ico-bg); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; box-shadow: var(--shadow-sm); }
+.card { background: var(--card); border-radius: var(--radius); padding: 30px 32px; position: relative; overflow: hidden; }
+.card.dark   { background: var(--black); color: #fff; }
+.card.dark h3, .card.dark p { color: #fff; }
+.card.dark p  { color: #B9B5CC; }
+.card.violet  { background: var(--grad); color: #fff; }
+.card.violet h3, .card.violet p { color: #fff; }
+.card.violet p { color: #EADFFF; }
+.card .ico {
+  width: 46px; height: 46px; border-radius: 13px; background: #fff;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 18px; box-shadow: var(--shadow-sm);
+}
 .card.dark .ico, .card.violet .ico { background: rgba(255,255,255,.14); box-shadow: none; }
 .card .ico svg { width: 23px; height: 23px; }
-.card .num-badge { position: absolute; top: 24px; right: 26px; font-family: var(--font-display); font-size: 46px; font-weight: var(--w-display); color: var(--numbadge); letter-spacing: -.04em; line-height: 1; }
-.card.dark .num-badge { color: rgba(255,255,255,.10); }
+.card .num-badge {
+  position: absolute; top: 24px; right: 26px; font-size: 46px; font-weight: 900;
+  color: rgba(108,76,241,.12); letter-spacing: -.04em; line-height: 1;
+}
+.card.dark .num-badge   { color: rgba(255,255,255,.10); }
 .card.violet .num-badge { color: rgba(255,255,255,.16); }
 
 /* ── Image boxes ────────────────────────────────────────────────────────── */
-.imgbox { border-radius: var(--radius); overflow: hidden; background: var(--grad-soft); position: relative; box-shadow: var(--card-shadow); }
+.imgbox { border-radius: var(--radius); overflow: hidden; background: var(--grad-soft); position: relative; }
 .imgbox img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ph-badge { position: absolute; bottom: 14px; left: 14px; background: rgba(8,10,20,.62); color: #fff; font-size: 11px; font-weight: 600; padding: 5px 11px; border-radius: 999px; backdrop-filter: blur(6px); letter-spacing: .02em; }
+.ph-badge {
+  position: absolute; bottom: 14px; left: 14px;
+  background: rgba(12,11,16,.62); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 5px 11px; border-radius: 999px; backdrop-filter: blur(6px); letter-spacing: .02em;
+}
 
 /* ── Imagen media (fallback sin .imgbox) ────────────────────────────────── */
-.media { border-radius: var(--radius); background: var(--grad-soft); background-size: cover; background-position: center; min-height: 320px; flex: 1; }
-.media.dark { background: linear-gradient(135deg, var(--card-2), var(--black)); }
+.media {
+  border-radius: var(--radius); background: var(--grad-soft);
+  background-size: cover; background-position: center;
+  min-height: 320px; flex: 1;
+}
+.media.dark { background: linear-gradient(135deg, #2a2440, var(--black)); }
 
 /* ── Avatar-tutor ───────────────────────────────────────────────────────── */
 .tutor { position: relative; flex: none; }
-.tutor .ring { position: absolute; inset: -14px; border-radius: 50%; border: 2px solid var(--avatar-ring); opacity: .55; animation: pulse 2.6s ease-out infinite; }
+.tutor .ring {
+  position: absolute; inset: -14px; border-radius: 50%;
+  border: 2px solid var(--primary-300); opacity: .55;
+  animation: pulse 2.6s ease-out infinite;
+}
 .tutor .ring.r2 { animation-delay: 1.3s; }
-@keyframes pulse { 0% { transform: scale(.92); opacity: .6; } 70% { opacity: 0; } 100% { transform: scale(1.18); opacity: 0; } }
+@keyframes pulse {
+  0%   { transform: scale(.92); opacity: .6; }
+  70%  { opacity: 0; }
+  100% { transform: scale(1.18); opacity: 0; }
+}
 .tutor .photo { border-radius: 50%; overflow: hidden; background: var(--grad); box-shadow: var(--shadow-lg); position: relative; z-index: 2; }
 .tutor .photo img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 18%; display: block; }
-.tutor .live { position: absolute; z-index: 3; bottom: 8px; left: 50%; transform: translateX(-50%); background: var(--black); color: #fff; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 999px; display: flex; align-items: center; gap: 7px; white-space: nowrap; box-shadow: var(--shadow); }
+.tutor .live {
+  position: absolute; z-index: 3; bottom: 8px; left: 50%; transform: translateX(-50%);
+  background: var(--black); color: #fff; font-size: 12px; font-weight: 700;
+  padding: 6px 14px; border-radius: 999px; display: flex; align-items: center; gap: 7px; white-space: nowrap; box-shadow: var(--shadow);
+}
 .tutor .live .blink { width: 8px; height: 8px; border-radius: 50%; background: #4ADE80; animation: blink 1.4s ease-in-out infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 
@@ -378,35 +405,12 @@ b, strong { color: var(--ink); font-weight: 700; }
 
 /* ── slideClass especiales ──────────────────────────────────────────────── */
 .slide.section-divider { background: var(--black); }
-.slide.closing { background: var(--grad); }
+.slide.closing         { background: var(--grad); }
 
-/* ── Accesibilidad ──────────────────────────────────────────────────────── */
-#nav button:focus-visible { outline: 2px solid var(--primary-300); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) {
-  .tutor .ring, .tutor .live .blink { animation: none; }
-}
+/* Tema claro: la capa pinta con el token SATURADO, no con el tinte --primary-300:
+   sobre papel o blanco un tinte pálido a 0,3 de alfa es literalmente invisible. */
+#mo { color: var(--primary); }
 
-/* ── Ajustes propios del tema ───────────────────────────────────────────── */
-.card.violet { box-shadow: 0 22px 60px rgba(91,141,239,.32); }
-.btn { box-shadow: 0 12px 32px rgba(91,141,239,.28); }
-.tag { backdrop-filter: blur(4px); }
-
-/* ── Firma de movimiento (#mo): cintas de aurora ──────────────────────────
-   Ambiente en CSS (no depende del CDN de GSAP): cada velo deriva en horizontal con
-   su propio desfase. El salto de fase de cada transición lo pone el vocabulario
-   (.mo-shift) sobre el <path> de dentro — nunca sobre el mismo nodo que anima el CSS,
-   porque una animación CSS gana a los estilos inline de GSAP y lo anularía. */
-#mo { mix-blend-mode: screen; }
-#mo .mo-ribbon { filter: blur(46px); will-change: transform; opacity: calc(var(--mo-i, .7) * .18); }
-#mo .mo-spark  { fill: currentColor; opacity: calc(var(--mo-i, .7) * .3); }
-/* Filamentos: hilos de 1px que se re-trazan en cascada en cada cambio de slide. Son
-   tinta puntual, no de área, así que no cuentan contra el tope de los rellenos. Su papel
-   es que la transición se NOTE: las cintas de fondo derivan demasiado despacio. */
-#mo .mo-filament { fill: none; stroke: currentColor; stroke-width: 1; opacity: calc(var(--mo-i, .7) * .21); }
-#mo .mo-veil   { animation: mo-veil calc(24s * var(--mo-speed, 1)) ease-in-out infinite alternate; }
-#mo .mo-v2     { animation-duration: calc(19s * var(--mo-speed, 1)); animation-delay: -7s; }
-#mo .mo-v3     { animation-duration: calc(28s * var(--mo-speed, 1)); animation-delay: -13s; }
-@keyframes mo-veil { from { transform: translateX(-64px); } to { transform: translateX(64px); } }
 
 #mo, #mo-tx {
   position: absolute; inset: 0; pointer-events: none; overflow: hidden;
@@ -445,18 +449,22 @@ b, strong { color: var(--ink); font-weight: 700; }
 #mo .mo-dcluster { animation: mo-dbreathe calc(9s * var(--mo-speed, 1)) ease-in-out infinite alternate; }
 #mo .mo-dc2      { animation-duration: calc(11s * var(--mo-speed, 1)); animation-delay: -3s; }
 @keyframes mo-dbreathe { from { opacity: .78; } to { opacity: 1; } }
-#stage { --mo-i: 0.72; --mo-speed: 1; }
-#mo-tx .mo-wipe {
-  position: absolute; top: -15%; left: 0; width: 44%; height: 130%;
-  background: var(--grad, linear-gradient(90deg, #0ABCC9, #19F7F1));
-  opacity: 0; filter: blur(8px); will-change: transform;
-}
-body.tx-fade .slide        { transform: none; transition: opacity .5s ease; }
-body.tx-fade .slide.active { transform: none; transition: opacity .5s ease .08s; }
-body.tx-fade .slide.prev   { transform: none; }
+#stage { --mo-i: 0.54; --mo-speed: 1; }
+#mo .mo-net  { animation: mo-float calc(14s * var(--mo-speed, 1)) ease-in-out infinite alternate; }
+/* Es el único preset que teje sobre el lienzo ENTERO, así que va más bajo que el resto: el
+   resguardo del centro (MOTION_BASE_CSS) apaga los enlaces que cruzan el contenido, y estos
+   factores se ocupan de que lo que asoma por los bordes tampoco cante. */
+#mo .mo-link { fill: none; stroke: currentColor; stroke-width: 1; opacity: calc(var(--mo-i, .6) * .19); }
+#mo .mo-node { fill: currentColor; opacity: calc(var(--mo-i, .6) * .4); }
+/* Sin ambiente CSS: los halos solo giran cuando cambia la slide (.mo-spin), y del origen
+   se ocupa GSAP, que lo hornea en la matriz del SVG (no via transform-origin). */
+#mo .mo-halo { fill: none; stroke: currentColor; stroke-width: 1; opacity: calc(var(--mo-i, .6) * .22); }
+@keyframes mo-float { from { transform: translateY(-10px); } to { transform: translateY(10px); } }
+#mo-tx .mo-stripes   { position: absolute; inset: 0; display: flex; }
+#mo-tx .mo-stripes i { flex: 1 1 0; background: currentColor; opacity: 0; will-change: transform; }
 </style>
 </head>
-<body class="tx-fade">
+<body class="tx-push">
 <div id="progress"></div>
 <div id="stage">
     <section class="slide cover" data-anim="[{&quot;target&quot;:&quot;.kicker&quot;,&quot;effect&quot;:&quot;blurIn&quot;,&quot;duration&quot;:0.6},{&quot;target&quot;:&quot;h1&quot;,&quot;effect&quot;:&quot;fadeUp&quot;,&quot;delay&quot;:0.14},{&quot;target&quot;:&quot;.lead&quot;,&quot;effect&quot;:&quot;fadeUp&quot;,&quot;delay&quot;:0.26},{&quot;target&quot;:&quot;.btn, .tag&quot;,&quot;effect&quot;:&quot;pop&quot;,&quot;delay&quot;:0.4,&quot;stagger&quot;:0.1}]">
@@ -533,48 +541,56 @@ body.tx-fade .slide.prev   { transform: none; }
   <div class="orb orb-b"></div>
   <div class="orb orb-c"></div>
 </div>
-<div id="mo" class="mo-custom mo-d-orbital" aria-hidden="true">
-  <svg viewBox="0 0 1280 720" preserveAspectRatio="none">
-  <defs>
-    <linearGradient id="mo-aur" x1="0" y1="0" x2="1" y2="0.4">
-      <stop offset="0" stop-color="currentColor" stop-opacity="0"></stop>
-      <stop offset="0.45" stop-color="currentColor" stop-opacity="1"></stop>
-      <stop offset="1" stop-color="currentColor" stop-opacity="0.15"></stop>
-    </linearGradient>
-  </defs>
-  <g class="mo-veil mo-v1"><path class="mo-ribbon mo-shift" fill="url(#mo-aur)" d="M-280,150 C120,20 400,250 740,140 C1020,50 1260,210 1580,120 L1580,290 C1260,370 1020,220 740,300 C400,400 120,180 -280,320 Z"></path></g>
-  <g class="mo-veil mo-v2"><path class="mo-ribbon mo-shift" fill="url(#mo-aur)" d="M-280,360 C160,270 440,460 780,370 C1080,295 1280,420 1580,340 L1580,450 C1280,520 1080,405 780,480 C440,565 160,385 -280,470 Z"></path></g>
-  <g class="mo-veil mo-v3"><path class="mo-ribbon mo-shift" fill="url(#mo-aur)" d="M-280,570 C200,470 480,650 820,575 C1100,515 1300,600 1580,545 L1580,640 C1300,700 1100,615 820,672 C480,742 200,575 -280,665 Z"></path></g>
-  <path class="mo-filament mo-draw" d="M-40,168 C280,86 540,222 840,156"></path>
-  <path class="mo-filament mo-draw" d="M430,600 C700,542 950,626 1310,576"></path>
-  <g class="mo-travel">
-    <circle class="mo-spark mo-pop" cx="230" cy="120" r="2.5"></circle>
-    <circle class="mo-spark mo-pop" cx="1060" cy="205" r="3"></circle>
-    <circle class="mo-spark mo-pop" cx="418" cy="176" r="2"></circle>
-  </g>
-  <g class="mo-travel">
-    <circle class="mo-spark mo-pop" cx="640" cy="622" r="2.5"></circle>
-    <circle class="mo-spark mo-pop" cx="912" cy="596" r="2.5"></circle>
-  </g>
-</svg>
-  <svg class="mo-decor" viewBox="0 0 1280 720">
-    <polygon class="mo-dveil mo-travel" points="1280,0 1280,300 980,0"/>
-    <g class="mo-dcluster mo-travel">
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="204" stroke-width="4.5" stroke-dasharray="230 1052"/>
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="286" stroke-width="2.5" stroke-dasharray="180 1616"/>
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="368" stroke-width="1.4" stroke-dasharray="140 2172"/>
+<div id="mo" class="mo-constellation mo-d-circuit" aria-hidden="true">
+  <svg viewBox="0 0 1280 720">
+    <g class="mo-net">
+      <g class="mo-travel">
+        <line class="mo-link mo-draw" x1="120" y1="120" x2="300" y2="210"/>
+        <line class="mo-link mo-draw" x1="300" y1="210" x2="170" y2="360"/>
+        <line class="mo-link mo-draw" x1="300" y1="210" x2="420" y2="90"/>
+        <circle class="mo-node mo-pop" cx="120" cy="120" r="3.5"/>
+        <circle class="mo-node mo-pop" cx="300" cy="210" r="4"/>
+        <circle class="mo-node mo-pop" cx="170" cy="360" r="3"/>
+        <circle class="mo-node mo-pop" cx="420" cy="90"  r="3"/>
+      </g>
+      <g class="mo-travel">
+        <line class="mo-link mo-draw" x1="700"  y1="150" x2="1010" y2="110"/>
+        <line class="mo-link mo-draw" x1="1010" y1="110" x2="1160" y2="250"/>
+        <line class="mo-link mo-draw" x1="1160" y1="250" x2="860"  y2="300"/>
+        <line class="mo-link mo-draw" x1="860"  y1="300" x2="700"  y2="150"/>
+        <circle class="mo-node mo-pop" cx="700"  cy="150" r="4"/>
+        <circle class="mo-node mo-pop" cx="860"  cy="300" r="3"/>
+        <circle class="mo-node mo-pop" cx="1010" cy="110" r="3.5"/>
+        <circle class="mo-node mo-pop" cx="1160" cy="250" r="3"/>
+        <circle class="mo-halo mo-spin" cx="860" cy="300" r="38" stroke-dasharray="52 187"/>
+      </g>
+      <g class="mo-travel">
+        <line class="mo-link mo-draw" x1="380" y1="470" x2="560" y2="612"/>
+        <line class="mo-link mo-draw" x1="560" y1="612" x2="900" y2="560"/>
+        <circle class="mo-node mo-pop" cx="380" cy="470" r="3.5"/>
+        <circle class="mo-node mo-pop" cx="560" cy="612" r="3"/>
+        <circle class="mo-node mo-pop" cx="900" cy="560" r="3.5"/>
+      </g>
     </g>
-    <g class="mo-dcluster mo-dc2 mo-travel">
-      <circle class="mo-darc mo-spin" cx="-80" cy="800" r="196" stroke-width="4" stroke-dasharray="200 1032"/>
+  </svg>
+  <svg class="mo-decor" viewBox="0 0 1280 720">
+    <g class="mo-travel">
+      <path class="mo-darc mo-draw" stroke-width="3.5" d="M1280,40 H1232 V116 H1264 V192"/>
+      <path class="mo-dfine mo-draw" stroke-width="2"  d="M1280,96 H1246 V172 H1280"/>
+      <circle class="mo-dsolid mo-pop" cx="1264" cy="192" r="4"/>
     </g>
     <g class="mo-travel">
-      <circle class="mo-dsolid mo-pop" cx="1244" cy="146" r="4.5"/>
-      <circle class="mo-dsolid mo-pop" cx="1262" cy="318" r="3"/>
+      <path class="mo-darc mo-draw" stroke-width="3.5" d="M0,300 H36 V376 H48"/>
+      <path class="mo-dfine mo-draw" stroke-width="2"  d="M0,348 H20 V424 H44"/>
+      <circle class="mo-dsolid mo-pop" cx="48" cy="376" r="3.5"/>
     </g>
-    <circle class="mo-dsolid mo-pop" cx="38" cy="498" r="4"/>
+    <g class="mo-travel">
+      <path class="mo-darc mo-draw" stroke-width="3.5" d="M96,720 V686 H244 V704 H380"/>
+      <circle class="mo-dsolid mo-pop" cx="380" cy="704" r="3.5"/>
+    </g>
   </svg>
 </div>
-<div id="mo-tx" aria-hidden="true"><div class="mo-wipe"></div></div>
+<div id="mo-tx" aria-hidden="true"><div class="mo-stripes"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
 </div>
 <div id="captions"></div>
 <div id="audio-timer">
@@ -595,7 +611,7 @@ body.tx-fade .slide.prev   { transform: none; }
 </div>
 <div class="hint">← / → · barra espaciadora</div>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
-<script>window.__DECK_MOTION__={"overlay":"custom","transition":"wipe","slideTransition":"fade","intensity":0.72,"speed":1,"flow":true,"decor":"orbital"};</script>
+<script>window.__DECK_MOTION__={"overlay":"constellation","transition":"stripes","slideTransition":"push","intensity":0.54,"speed":1,"flow":true,"decor":"circuit"};</script>
 <script>(function () {
   'use strict';
 

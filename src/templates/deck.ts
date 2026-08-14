@@ -10,7 +10,18 @@
  * que antes (sin audio, sin controles). Incluye un anillo de cuenta atrás
  * (#audio-timer, esquina inferior derecha) con el tiempo restante del audio del
  * slide activo; se oculta en slides sin audio.
+ *
+ * Capa de movimiento por tema (#mo / #mo-tx): la decoración en primer plano ya no está
+ * hardcodeada aquí. El tema declara su firma (preset del catálogo o SVG propio saneado) y
+ * este módulo la monta y la anima con el vocabulario `mo-*`. Catálogo y contrato: motion.ts.
  */
+import {
+  renderMotionCss,
+  renderMotionHtml,
+  renderMotionScript,
+  resolveMotion,
+  type ThemeMotion,
+} from './motion.js'
 
 export interface DeckParts {
   title: string
@@ -20,6 +31,16 @@ export interface DeckParts {
   /** Script tag con window.__DECK_AUDIO__ y window.__DECK_OPTS__, inyectado antes de DECK_JS.
    *  Ausente → deck sin audio (comportamiento previo a V5). */
   audioScript?: string
+  /** Firma de movimiento del tema (`theme.motion`, con el SVG ya saneado).
+   *  Ausente → firma histórica del deck: frame + sweep + push + orbes. */
+  motion?: ThemeMotion
+  /**
+   * Semilla para elegir la composición del kit de decoración (una de 10). `renderSlides` la
+   * construye con el nombre del tema y el título del deck, así que dos decks distintos casi
+   * nunca coinciden y el MISMO deck re-renderizado sale idéntico (no hay `Math.random()`).
+   * Ausente → se usa el título; si tampoco hay, la primera composición.
+   */
+  motionSeed?: string
 }
 
 function escapeHtml(s: string): string {
@@ -73,9 +94,20 @@ body {
 .slide.prev   { opacity: 0; transform: translateX(-70px); }
 .slide .notes { display: none; }
 
-/* Accesibilidad: sin desplazamientos si el usuario lo pide (la cascada GSAP también se corta). */
+/* Accesibilidad: sin desplazamientos si el usuario lo pide (la cascada GSAP también se corta).
+   Va con !important A PROPÓSITO: las variantes de transición de slide del tema
+   (body.tx-scale .slide…, motion.ts) se emiten DESPUÉS y con más especificidad, así que sin
+   !important esta guarda pierde y en modo "reduce" las slides seguirían desplazándose.
+   Misma razón para la capa de movimiento: cubre también el CSS que escriba el tema. */
 @media (prefers-reduced-motion: reduce) {
-  .slide, .slide.active, .slide.prev { transform: none; transition: opacity .3s ease; }
+  .slide, .slide.active, .slide.prev {
+    transform: none !important;
+    transition: opacity .3s ease !important;
+  }
+  #mo, #mo *, #mo-tx, #mo-tx *, #flow, #flow * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* ── Capa PERSISTENTE en primer plano (#flow) ──────────────────────────────────
@@ -89,29 +121,9 @@ body {
 #flow .orb-b { width: 360px; height: 360px; left: 74%; top: 66%; opacity: .15; background: radial-gradient(circle at 45% 45%, var(--primary-300, #19F7F1), transparent 66%); }
 #flow .orb-c { width: 500px; height: 500px; left: 56%; top: 22%; opacity: .12; background: radial-gradient(circle at 50% 50%, var(--primary-600, #0FCED3), transparent 70%); }
 
-/* ── Acentos decorativos en PRIMER PLANO (siempre visibles, incluso sobre slides opacas) ──
-   Overlay dentro de #stage, por ENCIMA de las slides (z-index 3), pointer-events:none. Para
-   decks que imitan referencias de fondo opaco, el motion de fondo se taparía: esto no. Muy
-   sutil. Se alimenta de los tokens del tema (--primary-300…) con fallback a los cianes de marca. */
-#decor-fg { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
-#decor-fg svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-#decor-fg .fg-line { fill: none; stroke: var(--primary-300, #19F7F1); stroke-width: 1.5; opacity: .3; }
-#decor-fg .fg-bracket { fill: none; stroke: var(--primary-300, #19F7F1); stroke-width: 2; opacity: .42; stroke-linecap: round; }
-#decor-fg .glint {
-  position: absolute; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--primary-300, #19F7F1); opacity: .22;
-  box-shadow: 0 0 12px 2px var(--primary-300, #19F7F1);
-}
-#decor-fg .g1 { top: 30px; left: 34px; }
-#decor-fg .g2 { top: 30px; right: 34px; }
-#decor-fg .g3 { bottom: 30px; left: 34px; }
-#decor-fg .g4 { bottom: 30px; right: 34px; }
-/* Barrido de luz diagonal (token) que cruza el escenario una vez por transición. */
-#decor-fg .sweep {
-  position: absolute; top: -10%; left: 0; width: 200px; height: 120%;
-  background: linear-gradient(90deg, transparent, var(--primary-300, #19F7F1), transparent);
-  opacity: 0; filter: blur(12px);
-}
+/* La decoración en PRIMER PLANO ya no vive aquí: es la capa de movimiento POR TEMA
+   (#mo overlay + #mo-tx cortina), y su CSS lo emite renderMotionCss() con el preset
+   elegido — o lo escribe el propio tema si trae su SVG. Ver templates/motion.ts. */
 
 /* Barra de progreso (degradada, fixed arriba) */
 #progress {
@@ -323,28 +335,52 @@ const DECK_JS = `
   var useGSAP  = !!G;
   var motionOK = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-  // Acentos en primer plano (líneas + destellos en esquinas). Van por ENCIMA de las
-  // slides, así que se ven siempre, aunque la slide sea un panel opaco (reproducción de
-  // referencias). Se animan en cada cambio de slide.
-  var decorFg   = document.getElementById('decor-fg');
-  var fgLines   = decorFg ? Array.from(decorFg.querySelectorAll('.fg-line')) : [];
-  var fgStrokes = decorFg ? Array.from(decorFg.querySelectorAll('.fg-line, .fg-bracket')) : [];
-  var glints    = decorFg ? Array.from(decorFg.querySelectorAll('.glint')) : [];
-  var sweep     = decorFg ? decorFg.querySelector('.sweep') : null;
-  // "Trazado" de líneas y brackets SIN plugin: stroke-dasharray = longitud del path; luego
-  // se anima el dashoffset de len→0. Si no se anima (reduced-motion), quedan dibujados.
+  // ── Capa de movimiento POR TEMA (#mo overlay + #mo-tx cortina) ───────────────
+  // El tema declara su firma en JSON (themes/*.json → motion) y el renderer la deja aquí
+  // como DATOS. El SVG (preset del catálogo o firma propia ya saneada) está inline en #mo:
+  // este intérprete NO lo conoce, solo sabe reaccionar al vocabulario de clases mo-* con
+  // que vienen marcados sus nodos. El AMBIENTE (deriva, respiración, rotación lenta) es
+  // CSS y no pasa por aquí: si el CDN de GSAP cae, la capa sigue viva.
+  var M      = window.__DECK_MOTION__ || {};
+  var moI    = clampNum(M.intensity, 0, 1, 0.6);   // --mo-i:     opacidad/amplitud global
+  var moS    = clampNum(M.speed, 0.5, 2, 1);       // --mo-speed: multiplicador de duración
+  var moEl   = document.getElementById('mo');
+  var moTxEl = document.getElementById('mo-tx');
+  if (stage) {
+    stage.style.setProperty('--mo-i', String(moI));
+    stage.style.setProperty('--mo-speed', String(moS));
+  }
+
+  // Los querySelectorAll del vocabulario se resuelven UNA vez; en cada transición solo se
+  // lanzan tweens sobre los arrays ya cacheados.
+  function moQ(sel) { return moEl ? Array.prototype.slice.call(moEl.querySelectorAll(sel)) : []; }
+  var moDrawEls   = moQ('.mo-draw');
+  var moPopEls    = moQ('.mo-pop');
+  var moShiftEls  = moQ('.mo-shift');
+  var moSpinEls   = moQ('.mo-spin');
+  var moFadeEls   = moQ('.mo-fade');
+  var moScanEls   = moQ('.mo-scan');
+  var moTravelEls = moQ('.mo-travel');
+
   if (useGSAP) {
-    fgStrokes.forEach(function (ln) {
-      var len = ln.getTotalLength ? ln.getTotalLength() : 1200;
-      ln.style.strokeDasharray = String(len);
-      ln.setAttribute('data-len', String(len));
+    // "Trazado" sin plugin: dasharray = longitud del path, luego dashoffset len→0. Si no
+    // se anima (reduced-motion), los trazos quedan dibujados. getTotalLength solo existe en
+    // elementos con geometría, así que se comprueba antes de llamar.
+    moDrawEls.forEach(function (n) {
+      if (!n.getTotalLength) return;
+      var len = 0;
+      try { len = n.getTotalLength(); } catch (e) { return; }
+      if (!len) return;
+      n.style.strokeDasharray = String(len);
+      n.setAttribute('data-mo-len', String(len));
     });
-    if (sweep) G.set(sweep, { x: -260, opacity: 0 });
-    // Respiración continua y sutil de los destellos entre transiciones (da vida al reposo).
-    if (motionOK && glints.length) {
-      G.to(glints, { opacity: '+=0.13', duration: 2.2, ease: 'sine.inOut', repeat: -1, yoyo: true,
-        stagger: { each: 0.4, from: 'random' } });
-    }
+    // Opacidad de reposo de los nodos .mo-fade: el pulso multiplica ESE valor (que lo fija
+    // el CSS del preset o del tema), en vez de imponer uno desde el JS.
+    moFadeEls.forEach(function (n) {
+      var op = 1;
+      try { op = parseFloat(window.getComputedStyle(n).opacity); } catch (e) {}
+      n.setAttribute('data-mo-op', String(isFinite(op) ? op : 1));
+    });
   }
 
   // ── Capa PERSISTENTE en primer plano (#flow) ──────────────────────────────────
@@ -475,27 +511,178 @@ const DECK_JS = `
       { autoAlpha: 1, y: 0, duration: 0.55, ease: 'power2.out', stagger: 0.07, delay: 0.12, overwrite: 'auto' });
   }
 
-  // Acentos en 1er plano (todos con color de TOKEN → encajan con cualquier tema). En cada
-  // cambio de slide: las líneas y los brackets de esquina se re-trazan, los destellos dan un
-  // "pop" de tamaño y un barrido de luz diagonal cruza el escenario. Al ir por encima del
-  // contenido, se ven aunque la slide sea un panel opaco (reproducción de referencias).
-  function animateAccents() {
-    if (!useGSAP || !motionOK) return;
-    fgStrokes.forEach(function (ln) {
-      var len = parseFloat(ln.getAttribute('data-len')) || 1200;
-      G.fromTo(ln, { strokeDashoffset: len },
-        { strokeDashoffset: 0, duration: 0.9, ease: 'power2.out', overwrite: 'auto' });
+  // ── Vocabulario mo-*: una rutina por marca ────────────────────────────────────
+  // Cada función reacciona al cambio de slide sobre los nodos que llevan su clase, en la
+  // dirección de la navegación (dir: +1 avanzar, −1 retroceder). Los presets del repo y el
+  // SVG libre de un tema se escriben con el MISMO vocabulario → una sola rutina para todos.
+  // Todas las duraciones se multiplican por moS (--mo-speed).
+
+  // .mo-draw — re-trazado: dashoffset len→0 (y −len→0 al retroceder, para que el trazo
+  // entre por el otro extremo). Filetes, brackets, conectores, arcos.
+  function moDraw(dir) {
+    // Escalonado en el sentido de la navegación: con una decoración rica (los presets
+    // llevan entre 4 y 17 trazos marcados) arrancarlos todos en el mismo frame se lee
+    // como un parpadeo; en cascada se lee como un gesto. El paso se reparte para que el
+    // último trazo no arranque más tarde de 0,45 s, o la reacción sobreviviría a la
+    // transición de slide.
+    var n = moDrawEls.length;
+    var step = n > 1 ? Math.min(0.05, 0.45 / (n - 1)) : 0;
+    moDrawEls.forEach(function (el, k) {
+      var len = parseFloat(el.getAttribute('data-mo-len'));
+      if (!len) return;
+      G.fromTo(el, { strokeDashoffset: dir < 0 ? -len : len },
+        { strokeDashoffset: 0, duration: 0.9 * moS, delay: (dir < 0 ? n - 1 - k : k) * step * moS,
+          ease: 'power2.out', overwrite: 'auto' });
     });
-    // Pop de tamaño de los destellos (la opacidad la gobierna la respiración continua).
-    if (glints.length) {
-      G.fromTo(glints, { scale: 0.55 }, { scale: 1, duration: 0.5, ease: 'back.out(2)', stagger: 0.06, overwrite: 'auto' });
-    }
-    // Barrido de luz diagonal que cruza una vez.
-    if (sweep) {
-      G.fromTo(sweep, { x: -260, opacity: 0 },
-        { keyframes: [{ opacity: 0.14, duration: 0.3 }, { x: 1340, opacity: 0, duration: 0.75 }],
+  }
+
+  // .mo-pop — scale 0,55 → 1 con rebote. Puntos, destellos, nodos.
+  function moPop(dir) {
+    if (!moPopEls.length) return;
+    G.fromTo(moPopEls, { scale: 0.55 },
+      { scale: 1, duration: 0.5 * moS, ease: 'back.out(2)', overwrite: 'auto',
+        stagger: { each: 0.06 * moS, from: dir < 0 ? 'end' : 'start' } });
+  }
+
+  // .mo-shift — salto de fase horizontal. Cintas, bandas, ondas.
+  // La fase es una función del contador de navegación (como flowPos con los orbes) en vez de
+  // un x += 120·dir acumulado: así el desplazamiento es REVERSIBLE, determinista y acotado
+  // (acumulando, 20 slides seguidas se llevarían la cinta fuera del escenario).
+  var moPhase = 0;
+  function moShift(dir) {
+    if (!moShiftEls.length) return;
+    moPhase += dir;
+    moShiftEls.forEach(function (n, k) {
+      var amp = 120 * (1 - (k % 3) * 0.22);
+      G.to(n, { x: Math.sin(moPhase * 0.9 + k * 1.1) * amp,
+        duration: 1.1 * moS, ease: 'power2.inOut', overwrite: 'auto' });
+    });
+  }
+
+  // .mo-spin — rotación ±18° según la dirección, con origen en el centro del bbox
+  // (el default de GSAP para SVG). Arcos y anillos.
+  function moSpin(dir) {
+    moSpinEls.forEach(function (n, k) {
+      var rot = (parseFloat(n.getAttribute('data-mo-rot')) || 0) + 18 * dir * (k % 2 ? -1 : 1);
+      n.setAttribute('data-mo-rot', String(rot));
+      G.to(n, { rotation: rot, duration: 0.9 * moS, ease: 'back.out(1.4)', overwrite: 'auto' });
+    });
+  }
+
+  // .mo-fade — pulso de opacidad sobre su valor de REPOSO (el que fija el CSS del preset o
+  // del tema) y vuelta. Rejillas, tramas. El factor es 1,35 y no más: el preset dimensiona
+  // su opacidad de reposo para que ni el pico del pulso pase del tope de 0,18 sobre foto.
+  function moFade() {
+    moFadeEls.forEach(function (n) {
+      var op = parseFloat(n.getAttribute('data-mo-op'));
+      if (!isFinite(op)) op = 1;
+      G.fromTo(n, { opacity: Math.min(1, op * 1.35) },
+        { opacity: op, duration: 0.6 * moS, ease: 'power2.out', overwrite: 'auto' });
+    });
+  }
+
+  // .mo-scan — cruza el escenario en el eje de dir. Líneas de escaneo.
+  function moScan(dir) {
+    if (!moScanEls.length) return;
+    var from = dir < 0 ? 1408 : -128, to = dir < 0 ? -128 : 1408;
+    G.fromTo(moScanEls, { x: from, opacity: 0 },
+      { keyframes: [{ opacity: 0.5 * moI, duration: 0.18 * moS },
+                    { x: to, opacity: 0, duration: 0.9 * moS }],
+        ease: 'power1.inOut', overwrite: 'auto',
+        // Con más de una barra, la segunda va por detrás → el barrido deja rastro.
+        stagger: { each: 0.08 * moS, from: dir < 0 ? 'end' : 'start' } });
+  }
+
+  // .mo-travel — VIAJE por índice de slide. Es la única marca del vocabulario que no vuelve
+  // a su sitio: cada slide tiene su posición y navegar lleva la pieza de una a la siguiente,
+  // igual que los orbes de #flow. Es lo que hace que la capa acompañe al deck en vez de dar
+  // un respingo y quedarse quieta: en la slide 6 la decoración está en otro sitio que en la 1.
+  //
+  // Determinista por (índice de slide, índice de pieza), no acumulado: retroceder devuelve
+  // EXACTAMENTE la posición anterior, y 40 slides seguidas no se llevan nada fuera del
+  // escenario. Cada pieza usa su propia fase y amplitud → las piezas no viajan en bloque
+  // (que se leería como que se mueve la capa entera), sino con parallax.
+  //
+  // Ojo: .mo-travel escribe transform, así que NO se combina con .mo-shift (x) ni .mo-spin
+  // (rotation) en el mismo nodo, ni con un @keyframes CSS que anime transform (gotcha 4 de
+  // motion.ts). En los presets del repo van siempre en nodos distintos.
+  // Solo x/y, sin rotación, igual que el viaje de los orbes. La rotación se probó y se quitó:
+  // GSAP la hornea en la matriz con el origen derivado del bbox, y en las piezas grandes (un
+  // velo de 300 px) eso reintroduce en cada salto un error de unos 5 px que NO converge, así
+  // que ir y volver no devolvía la misma posición. Además es redundante: quien gira es
+  // .mo-spin, que sí acumula de forma reversible.
+  function moTravelPos(i, k) {
+    var a = i * 0.62 + k * 2.4;
+    return {
+      x: Math.cos(a) * (26 + (k % 3) * 13),
+      y: Math.sin(a * 0.78 + k * 0.7) * (15 + (k % 2) * 9)
+    };
+  }
+  function moTravel() {
+    if (!useGSAP || !moTravelEls.length) return;
+    moTravelEls.forEach(function (n, k) {
+      var p = moTravelPos(cur, k);
+      // Duraciones largas y desfasadas: el viaje tiene que leerse como deriva, no como un
+      // salto. Se sale del compás de la transición de slide a propósito.
+      if (motionOK) G.to(n, { x: p.x, y: p.y,
+        duration: (1.6 + (k % 3) * 0.35) * moS, ease: 'power2.inOut', overwrite: 'auto' });
+      else G.set(n, p);
+    });
+  }
+
+  // ── Cortinas (#mo-tx): reaccionan a la DIRECCIÓN de la navegación ─────────────
+  // Todas arrancan y acaban en opacity 0, así que sin GSAP no se ven (el CSS las deja
+  // invisibles). El pico de opacidad se ata a --mo-i y nunca pasa de 0,22: la cortina no
+  // puede llegar a tapar el contenido ni teñir una foto o el vídeo del avatar.
+  function moPeak(max) { return Math.min(0.22, max * (moI / 0.6)); }
+  function moTxQ(sel) { return moTxEl ? moTxEl.querySelector(sel) : null; }
+
+  var MOTION_TX = {
+    // Barrido diagonal de luz que cruza una vez (el histórico del deck).
+    sweep: function (dir) {
+      var el = moTxQ('.mo-sweep');
+      if (!el) return;
+      G.fromTo(el, { x: dir < 0 ? 1340 : -260, opacity: 0 },
+        { keyframes: [{ opacity: moPeak(0.14), duration: 0.3 * moS },
+                      { x: dir < 0 ? -260 : 1340, opacity: 0, duration: 0.75 * moS }],
           ease: 'power1.inOut', overwrite: 'auto' });
+    },
+    // Banda de degradado inclinada que cruza en el sentido de dir.
+    wipe: function (dir) {
+      var el = moTxQ('.mo-wipe');
+      if (!el) return;
+      G.fromTo(el, { xPercent: dir < 0 ? 260 : -260, skewX: -12, opacity: moPeak(0.22) },
+        { xPercent: dir < 0 ? -260 : 260, opacity: 0, duration: 0.55 * moS,
+          ease: 'power2.inOut', overwrite: 'auto' });
+    },
+    // Anillo que se expande desde el centro (o se contrae al retroceder).
+    iris: function (dir) {
+      var el = moTxQ('.mo-iris circle');
+      if (!el) return;
+      var a = dir < 0 ? 900 : 0, b = dir < 0 ? 0 : 900;
+      G.fromTo(el, { attr: { r: a, 'stroke-width': 40 }, opacity: moPeak(0.22) },
+        { attr: { r: b, 'stroke-width': 0 }, opacity: 0, duration: 0.7 * moS,
+          ease: 'power2.out', overwrite: 'auto' });
+    },
+    // Seis barras verticales que entran escalonadas y salen por el lado contrario.
+    stripes: function (dir) {
+      var els = moTxEl ? Array.prototype.slice.call(moTxEl.querySelectorAll('.mo-stripes i')) : [];
+      if (!els.length) return;
+      G.fromTo(els, { yPercent: dir < 0 ? 100 : -100, opacity: moPeak(0.12) },
+        { keyframes: [{ yPercent: 0, duration: 0.28 * moS },
+                      { yPercent: dir < 0 ? -100 : 100, opacity: 0, duration: 0.32 * moS }],
+          ease: 'power2.inOut', overwrite: 'auto',
+          stagger: { each: 0.04 * moS, from: dir < 0 ? 'end' : 'start' } });
     }
+  };
+
+  // Reacción completa de la capa a un cambio de slide. dir 0 (ir al slide ya activo) no
+  // dispara nada: ni vocabulario ni cortina.
+  function animateMotion(dir) {
+    if (!useGSAP || !motionOK || !dir) return;
+    moDraw(dir); moPop(dir); moShift(dir); moSpin(dir); moFade(dir); moScan(dir);
+    var tx = MOTION_TX[M.transition];
+    if (typeof tx === 'function') tx(dir);
   }
 
   // Los orbes de #flow NO se reinician: viajan de la posición del slide anterior a la del
@@ -510,7 +697,9 @@ const DECK_JS = `
     });
   }
 
-  function render() {
+  // dir: +1 se avanza, −1 se retrocede, 0 no hay salto (mismo slide). La capa de
+  // movimiento es lo único que lo usa; el resto del render es igual en los dos sentidos.
+  function render(dir) {
     slides.forEach(function (s, i) {
       s.classList.toggle('active', i === cur);
       s.classList.toggle('prev',   i < cur);
@@ -521,12 +710,20 @@ const DECK_JS = `
     if (counter)  counter.textContent  = pad(cur) + ' / ' + pad(total - 1);
     if (progress) progress.style.width = (total > 1 ? (cur / (total - 1)) * 100 : 100) + '%';
     animateContent();
-    animateAccents();
+    animateMotion(dir === undefined ? 1 : dir);
+    // El viaje va FUERA de animateMotion: no depende de la dirección y tiene que colocar la
+    // capa también en el primer render (dir 0), igual que animateFlow con los orbes.
+    moTravel();
     animateFlow();
     playCurrent(); // no-op cuando no hay audio
   }
 
-  function go(i)  { cur = Math.max(0, Math.min(total - 1, i)); render(); }
+  function go(i)  {
+    var n   = Math.max(0, Math.min(total - 1, i));
+    var dir = n > cur ? 1 : n < cur ? -1 : 0;
+    cur = n;
+    render(dir);
+  }
   function next() { go(cur + 1); }
   function prev() { go(cur - 1); }
 
@@ -796,21 +993,6 @@ const FLOW_HTML = `<div id="flow" aria-hidden="true">
   <div class="orb orb-c"></div>
 </div>`
 
-// Acentos en primer plano: dos líneas de acento (arriba/abajo) que se trazan + cuatro
-// destellos en las esquinas que pulsan. Va DENTRO de #stage, DESPUÉS de las slides (encima).
-const DECOR_FG_HTML = `<div id="decor-fg" aria-hidden="true">
-  <div class="sweep"></div>
-  <svg viewBox="0 0 1280 720" preserveAspectRatio="none">
-    <path class="fg-line" d="M40,44 H1240"/>
-    <path class="fg-line" d="M40,676 H1240"/>
-    <path class="fg-bracket" d="M34,64 V34 H64"/>
-    <path class="fg-bracket" d="M1246,64 V34 H1216"/>
-    <path class="fg-bracket" d="M34,656 V686 H64"/>
-    <path class="fg-bracket" d="M1246,656 V686 H1216"/>
-  </svg>
-  <span class="glint g1"></span><span class="glint g2"></span><span class="glint g3"></span><span class="glint g4"></span>
-</div>`
-
 // ── Render de UNA slide, autónomo y estático (para la revisión visual) ──────────
 // Documento mínimo 1280×720 con el MISMO BASE_CSS + tema + clases que el deck real
 // (\`slide active <slideClass>\`), pero sin nav, barra, audio, GSAP ni acentos: solo el
@@ -846,7 +1028,17 @@ ${css}
 }
 
 // ── Plantilla HTML ────────────────────────────────────────────────────────────
-export function renderDeck({ title, css, slides, audioScript }: DeckParts): string {
+export function renderDeck({
+  title,
+  css,
+  slides,
+  audioScript,
+  motion,
+  motionSeed,
+}: DeckParts): string {
+  // Sin `motion` declarado → la firma histórica del deck (frame + sweep + push + orbes).
+  // La semilla solo elige la composición del kit de decoración (una de 10).
+  const mo = resolveMotion(motion, motionSeed || title)
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -856,14 +1048,15 @@ export function renderDeck({ title, css, slides, audioScript }: DeckParts): stri
 <style>
 ${BASE_CSS}
 ${css}
+${renderMotionCss(mo)}
 </style>
 </head>
-<body>
+<body class="tx-${mo.slideTransition}">
 <div id="progress"></div>
 <div id="stage">
 ${slides}
-${FLOW_HTML}
-${DECOR_FG_HTML}
+${mo.flow ? FLOW_HTML : ''}
+${renderMotionHtml(mo)}
 </div>
 <div id="captions"></div>
 <div id="audio-timer">
@@ -884,6 +1077,7 @@ ${DECOR_FG_HTML}
 </div>
 <div class="hint">← / → · barra espaciadora</div>
 ${GSAP_CDN}
+${renderMotionScript(mo)}
 ${audioScript ?? ''}<script>${DECK_JS}</script>
 </body>
 </html>

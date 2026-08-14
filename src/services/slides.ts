@@ -160,7 +160,20 @@ export function renderSlides(
     .join('\n')
 
   const audioScript = buildAudioScript(audio, opts, introIndex)
-  return renderDeck({ title: data.title, css: theme.css, slides: sections, audioScript })
+  // La firma de movimiento del tema (#mo / #mo-tx) viaja al deck; su `svg` ya viene saneado
+  // de themes.ts. renderSingleSlide NO la pasa a propósito: la revisión visual tiene que ver
+  // la slide limpia, o el revisor leería la capa como "imagen teñida" y reescribiría slides sanas.
+  return renderDeck({
+    title: data.title,
+    css: theme.css,
+    slides: sections,
+    audioScript,
+    motion: theme.motion,
+    // Semilla de la composición del kit de decoración: tema + título del deck. Determinista a
+    // propósito — este mismo deck se re-renderiza varias veces (al regenerar el audio, al
+    // guardar desde el editor) y la decoración no debe cambiar entre renders.
+    motionSeed: `${theme.name}|${data.title}`,
+  })
 }
 
 /**

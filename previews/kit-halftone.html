@@ -533,7 +533,7 @@ body.tx-fade .slide.prev   { transform: none; }
   <div class="orb orb-b"></div>
   <div class="orb orb-c"></div>
 </div>
-<div id="mo" class="mo-custom mo-d-orbital" aria-hidden="true">
+<div id="mo" class="mo-custom mo-d-halftone" aria-hidden="true">
   <svg viewBox="0 0 1280 720" preserveAspectRatio="none">
   <defs>
     <linearGradient id="mo-aur" x1="0" y1="0" x2="1" y2="0.4">
@@ -558,20 +558,23 @@ body.tx-fade .slide.prev   { transform: none; }
   </g>
 </svg>
   <svg class="mo-decor" viewBox="0 0 1280 720">
-    <polygon class="mo-dveil mo-travel" points="1280,0 1280,300 980,0"/>
-    <g class="mo-dcluster mo-travel">
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="204" stroke-width="4.5" stroke-dasharray="230 1052"/>
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="286" stroke-width="2.5" stroke-dasharray="180 1616"/>
-      <circle class="mo-darc mo-spin" cx="1340" cy="-80" r="368" stroke-width="1.4" stroke-dasharray="140 2172"/>
+    <polygon class="mo-dveil mo-dveil2 mo-travel" points="1280,0 1280,300 980,0"/>
+    <g class="mo-travel">
+      <circle class="mo-dsolid mo-pop" cx="1256" cy="26"  r="7"/>
+      <circle class="mo-dsolid mo-pop" cx="1192" cy="34"  r="5.5"/>
+      <circle class="mo-dsolid mo-pop" cx="1248" cy="96"  r="5"/>
+      <circle class="mo-dsolid mo-pop" cx="1264" cy="168" r="3.5"/>
+      <circle class="mo-dsolid mo-pop" cx="1244" cy="244" r="2.5"/>
     </g>
-    <g class="mo-dcluster mo-dc2 mo-travel">
-      <circle class="mo-darc mo-spin" cx="-80" cy="800" r="196" stroke-width="4" stroke-dasharray="200 1032"/>
+    <g class="mo-dcluster mo-travel">
+      <circle class="mo-darc mo-spin" cx="1330" cy="-60" r="286" stroke-width="1.8" stroke-dasharray="180 1616"/>
     </g>
     <g class="mo-travel">
-      <circle class="mo-dsolid mo-pop" cx="1244" cy="146" r="4.5"/>
-      <circle class="mo-dsolid mo-pop" cx="1262" cy="318" r="3"/>
+      <circle class="mo-dsolid mo-pop" cx="22"  cy="702" r="6"/>
+      <circle class="mo-dsolid mo-pop" cx="80"  cy="712" r="4.5"/>
+      <circle class="mo-dsolid mo-pop" cx="28"  cy="644" r="4"/>
+      <circle class="mo-dsolid mo-pop" cx="136" cy="716" r="3"/>
     </g>
-    <circle class="mo-dsolid mo-pop" cx="38" cy="498" r="4"/>
   </svg>
 </div>
 <div id="mo-tx" aria-hidden="true"><div class="mo-wipe"></div></div>
@@ -595,7 +598,7 @@ body.tx-fade .slide.prev   { transform: none; }
 </div>
 <div class="hint">← / → · barra espaciadora</div>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
-<script>window.__DECK_MOTION__={"overlay":"custom","transition":"wipe","slideTransition":"fade","intensity":0.72,"speed":1,"flow":true,"decor":"orbital"};</script>
+<script>window.__DECK_MOTION__={"overlay":"custom","transition":"wipe","slideTransition":"fade","intensity":0.72,"speed":1,"flow":true,"decor":"halftone"};</script>
 <script>(function () {
   'use strict';
 

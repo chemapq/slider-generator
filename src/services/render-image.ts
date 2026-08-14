@@ -1,4 +1,5 @@
 import { existsSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
 
@@ -7,8 +8,10 @@ import { chromium, type Browser } from 'playwright-core'
  *
  * Resolvemos el ejecutable de Chromium desde `CHROMIUM_PATH`, desde la ruta que fije
  * `PLAYWRIGHT_BROWSERS_PATH` o desde la caché por defecto de ms-playwright (la misma que
- * usa la skill `verify`). Contempla macOS y Linux: en el contenedor de un PaaS la caché
- * vive en `~/.cache/ms-playwright` y el binario es `chrome-linux/chrome`, no un .app.
+ * usa la skill `verify`). Contempla Linux, macOS y Windows: la caché cambia de sitio en cada
+ * uno (`~/.cache`, `~/Library/Caches`, `%LOCALAPPDATA%`) y el binario también
+ * (`chrome-linux/chrome`, un .app, `chrome-win64/chrome.exe`). Como último recurso pedimos a
+ * playwright-core la ruta de su propia revisión.
  *
  * Si no hay navegador, `getBrowser()` lanza y la revisión visual queda desactivada de
  * hecho (el llamador la trata como fallo aislado). En un despliegue sin Chromium conviene
@@ -18,16 +21,26 @@ const CANDIDATE_BINARIES = [
   // Linux (contenedores, Render)
   join('chrome-linux', 'chrome'),
   join('chrome-linux64', 'chrome'),
+  // Windows
+  join('chrome-win64', 'chrome.exe'),
+  join('chrome-win', 'chrome.exe'),
   // macOS
   join('chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
   join('chrome-mac', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
 ]
 
 function browserCacheDirs(): string[] {
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return [process.env.PLAYWRIGHT_BROWSERS_PATH]
-  const home = process.env.HOME || ''
+  // "0" es el valor especial de Playwright para instalar dentro de node_modules, no una ruta.
+  const fromEnv = process.env.PLAYWRIGHT_BROWSERS_PATH
+  if (fromEnv && fromEnv !== '0') return [fromEnv]
+  const home = homedir()
   if (!home) return []
-  return [join(home, '.cache', 'ms-playwright'), join(home, 'Library', 'Caches', 'ms-playwright')]
+  // Probamos las tres: comprobamos existencia antes de leer, así que sobra filtrar por SO.
+  return [
+    join(home, '.cache', 'ms-playwright'),
+    join(home, 'Library', 'Caches', 'ms-playwright'),
+    join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'ms-playwright'),
+  ]
 }
 
 function resolveExecutable(): string | undefined {
@@ -45,6 +58,14 @@ function resolveExecutable(): string | undefined {
         if (existsSync(exe)) return exe
       }
     }
+  }
+
+  // Fallback: la ruta que playwright-core calcula para la revisión con la que se compiló.
+  try {
+    const exe = chromium.executablePath()
+    if (exe && existsSync(exe)) return exe
+  } catch {
+    // playwright-core lanza si no hay navegador instalado para su revisión.
   }
   return undefined
 }
